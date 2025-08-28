@@ -11,19 +11,21 @@
     "retry_attempts": 3,
     "retry_delay": 2
   },
+  "samsung_tv": {
+    "enabled": true,
+    "ip_address": "192.168.0.171",
+    "port": 8002,
+    "token_file": "/home/bower/.samsung_tv_token",
+    "mac_address": "28:af:42:46:a8:0e",
+    "connection_timeout": 10,
+    "wake_on_lan": true
+  },
   "cec": {
     "enabled": true,
     "device_address": "0.0.0.0",
-    "tv_address": "0"
-  },
-  "ir": {
-    "enabled": true,
-    "receiver_pin": 23,
-    "transmitter_pin": 24,
-    "protocol": "NEC",
-    "codes": {
-      "samsung_power_toggle": "0xE0E040BF"
-    }
+    "tv_address": "0",
+    "power_on_only": true,
+    "cooldown_period": 25
   },
   "logging": {
     "level": "INFO",

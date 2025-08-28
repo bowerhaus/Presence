@@ -7,19 +7,24 @@ We are using **BCM (GPIO) numbering**, not physical pin numbers.
 | Function | GPIO (BCM) | Physical Pin | Notes |
 |----------|------------|--------------|-------|
 | **Presence Sensor** | GPIO 14 | Pin 8 | DFRobot SENS0395 trigger output |
-| **IR Receiver** | GPIO 23 | Pin 16 | For learning IR codes |
-| **IR Transmitter** | GPIO 24 | Pin 18 | For sending IR commands |
+
+### Available GPIO Pins:
+| GPIO (BCM) | Physical Pin | Status | Notes |
+|------------|--------------|--------|-------|
+| GPIO 23 | Pin 16 | Available | Previously used for IR receiver |
+| GPIO 24 | Pin 18 | Available | Previously used for IR transmitter |
 
 ### Important Notes:
 - `GPIO.setmode(GPIO.BCM)` is used in all scripts
 - GPIO numbers refer to the Broadcom SOC channel numbers
 - These are different from the physical pin numbers on the header
+- GPIO 23 and 24 are now available for other uses since IR hardware was removed
 
 ### Quick Reference:
 ```python
 # In Python with RPi.GPIO:
 GPIO.setmode(GPIO.BCM)  # Use GPIO numbers
-GPIO.setup(23, GPIO.IN)  # This is GPIO23, not physical pin 23
+GPIO.setup(14, GPIO.IN)  # Presence sensor on GPIO14, not physical pin 14
 
 # To use physical pins instead (NOT what we're doing):
 # GPIO.setmode(GPIO.BOARD)  # Would use physical pin numbers
@@ -34,8 +39,8 @@ GPIO.setup(23, GPIO.IN)  # This is GPIO23, not physical pin 23
                  GND  (9) (10) RXD  (GPIO15)
        (GPIO17) GP17 (11) (12) GP18 (GPIO18)
        (GPIO27) GP27 (13) (14) GND
-       (GPIO22) GP22 (15) (16) GP23 (GPIO23) <- IR RECEIVER
-                 3V3 (17) (18) GP24 (GPIO24) <- IR TRANSMITTER
+       (GPIO22) GP22 (15) (16) GP23 (GPIO23) <- AVAILABLE
+                 3V3 (17) (18) GP24 (GPIO24) <- AVAILABLE
       (GPIO10) MOSI  (19) (20) GND
        (GPIO9) MISO  (21) (22) GP25 (GPIO25)
       (GPIO11) SCLK  (23) (24) CE0  (GPIO8)
@@ -50,16 +55,12 @@ GPIO.setup(23, GPIO.IN)  # This is GPIO23, not physical pin 23
 ```
 
 ### Wiring Summary:
-1. **IR Receiver Module** (e.g., TSOP38238):
-   - VCC → 3.3V (Pin 1 or 17)
+1. **DFRobot SENS0395 Presence Sensor**:
+   - VCC → 5V (Pin 2 or 4)  
    - GND → GND (Any GND pin)
-   - OUT → GPIO 23 (Physical Pin 16)
-
-2. **IR LED/Transmitter**:
-   - Anode (+) → GPIO 24 (Physical Pin 18) via current limiting resistor
-   - Cathode (-) → GND
-
-3. **DFRobot SENS0395 Presence Sensor**:
-   - VCC → 5V (Pin 2 or 4)
-   - GND → GND
    - OUT → GPIO 14 (Physical Pin 8)
+
+### Network Control Benefits:
+- No GPIO pins needed for TV control (network-based)  
+- Simplified wiring with only sensor connection required
+- GPIO 23 and 24 available for future expansion
