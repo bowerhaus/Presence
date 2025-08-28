@@ -13,8 +13,12 @@ from pathlib import Path
 try:
     import RPi.GPIO as GPIO
 except ImportError:
-    print("Warning: RPi.GPIO not available. Running in simulation mode.")
     GPIO = None
+
+try:
+    import lgpio
+except ImportError:
+    lgpio = None
 
 from samsung_tv_control import SamsungTVController
 
@@ -33,9 +37,14 @@ class PresenceSensor:
         self.tv_controller = None
         self.presence_detected = False
         self.last_presence_time = None
+        self.last_presence_lost_time = None
         self.tv_on = False
         self.running = False
         self.turn_off_timer = None
+        
+        # GPIO handling variables
+        self.gpio_handle = None
+        self.use_lgpio = False
         
         self.dev_mode = self.config.get("dev_mode", {})
         self.dry_run = self.dev_mode.get("dry_run", False)
@@ -78,23 +87,55 @@ class PresenceSensor:
     
     def _setup_gpio(self):
         """Initialize GPIO for sensor reading"""
-        if GPIO is None:
-            self.logger.warning("GPIO not available - running in simulation mode")
-            return
+        # Use lgpio (modern library for CM5)
+        if lgpio is not None:
+            try:
+                # Try different GPIO chips
+                chip_candidates = [0, 4, 1, 2]
+                
+                for chip_num in chip_candidates:
+                    try:
+                        self.gpio_handle = lgpio.gpiochip_open(chip_num)
+                        lgpio.gpio_claim_input(self.gpio_handle, self.sensor_pin)
+                        
+                        # Test read to verify it works
+                        test_value = lgpio.gpio_read(self.gpio_handle, self.sensor_pin)
+                        self.use_lgpio = True
+                        self.logger.info(f"lgpio initialized - sensor on pin {self.sensor_pin} via chip {chip_num} (current: {test_value})")
+                        return
+                        
+                    except Exception as e:
+                        if self.gpio_handle is not None:
+                            try:
+                                lgpio.gpiochip_close(self.gpio_handle)
+                            except:
+                                pass
+                        self.gpio_handle = None
+                        continue
+                        
+            except Exception as e:
+                self.logger.error(f"lgpio setup failed: {e}")
         
-        try:
-            gpio_mode = self.config.get("gpio_mode", "BCM")
-            if gpio_mode == "BCM":
-                GPIO.setmode(GPIO.BCM)
-            else:
-                GPIO.setmode(GPIO.BOARD)
-            
-            GPIO.setup(self.sensor_pin, GPIO.IN)
-            self.logger.info(f"GPIO initialized - sensor on pin {self.sensor_pin}")
-            
-        except Exception as e:
-            self.logger.error(f"GPIO setup failed: {e}")
-            sys.exit(1)
+        # Fallback to RPi.GPIO if available
+        if GPIO is not None:
+            try:
+                gpio_mode = self.config.get("gpio_mode", "BCM")
+                if gpio_mode == "BCM":
+                    GPIO.setmode(GPIO.BCM)
+                else:
+                    GPIO.setmode(GPIO.BOARD)
+                
+                GPIO.setup(self.sensor_pin, GPIO.IN)
+                self.use_lgpio = False
+                self.logger.info(f"RPi.GPIO initialized - sensor on pin {self.sensor_pin}")
+                return
+                
+            except Exception as e:
+                self.logger.warning(f"RPi.GPIO setup failed: {e}")
+        
+        # No GPIO available - this is an error for production use
+        self.logger.error("No GPIO library available - hardware sensor required!")
+        sys.exit(1)
     
     def _setup_tv_controller(self):
         """Initialize TV controller"""
@@ -107,16 +148,24 @@ class PresenceSensor:
     
     def _read_sensor(self) -> bool:
         """Read the presence sensor state"""
-        if GPIO is None:
-            # Simulation mode - return random presence for testing
-            import random
-            return random.choice([True, False])
+        # Use lgpio if available
+        if self.use_lgpio and self.gpio_handle is not None:
+            try:
+                return lgpio.gpio_read(self.gpio_handle, self.sensor_pin) == 1
+            except Exception as e:
+                self.logger.error(f"lgpio read error: {e}")
+                return False
         
-        try:
-            return GPIO.input(self.sensor_pin) == GPIO.HIGH
-        except Exception as e:
-            self.logger.error(f"Sensor read error: {e}")
-            return False
+        # Use RPi.GPIO if available
+        if GPIO is not None and not self.use_lgpio:
+            try:
+                return GPIO.input(self.sensor_pin) == GPIO.HIGH
+            except Exception as e:
+                self.logger.error(f"RPi.GPIO read error: {e}")
+                return False
+        
+        self.logger.error("No GPIO method available to read sensor!")
+        return False
     
     def _turn_tv_on(self):
         """Turn TV on immediately"""
@@ -199,10 +248,17 @@ class PresenceSensor:
     
     def _on_presence_lost(self):
         """Handle loss of presence"""
-        if self.presence_detected:
-            self.logger.info("PRESENCE LOST")
-            self.presence_detected = False
-            self._schedule_tv_off()
+        now = datetime.now()
+        
+        if (self.last_presence_lost_time is None or 
+            (now - self.last_presence_lost_time).total_seconds() > self.debounce_time):
+            
+            if self.presence_detected:
+                self.logger.info("PRESENCE LOST")
+                self.presence_detected = False
+                self._schedule_tv_off()
+            
+            self.last_presence_lost_time = now
     
     def _monitor_loop(self):
         """Main monitoring loop"""
@@ -255,8 +311,19 @@ class PresenceSensor:
         if self.turn_off_timer:
             self.turn_off_timer.cancel()
         
-        if GPIO is not None:
-            GPIO.cleanup()
+        # Cleanup GPIO resources
+        if self.use_lgpio and self.gpio_handle is not None:
+            try:
+                lgpio.gpio_free(self.gpio_handle, self.sensor_pin)
+                lgpio.gpiochip_close(self.gpio_handle)
+            except:
+                pass
+        
+        if GPIO is not None and not self.use_lgpio:
+            try:
+                GPIO.cleanup()
+            except:
+                pass
         
         self.logger.info("System stopped")
     
