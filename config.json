@@ -1,0 +1,40 @@
+{
+  "gpio_mode": "BCM",
+  "sensor": {
+    "gpio_pin": 14,
+    "debounce_time": 2.0,
+    "mode": "trigger"
+  },
+  "tv_control": {
+    "turn_off_delay": 600,
+    "turn_on_delay": 0,
+    "retry_attempts": 3,
+    "retry_delay": 2
+  },
+  "cec": {
+    "enabled": true,
+    "device_address": "0.0.0.0",
+    "tv_address": "0"
+  },
+  "ir": {
+    "enabled": true,
+    "receiver_pin": 23,
+    "transmitter_pin": 24,
+    "protocol": "NEC",
+    "codes": {
+      "samsung_power_toggle": "0xE0E040BF"
+    }
+  },
+  "logging": {
+    "level": "INFO",
+    "file_path": "/var/log/presence-sensor.log",
+    "max_size_mb": 10,
+    "backup_count": 5
+  },
+  "dev_mode": {
+    "enabled": false,
+    "dry_run": false,
+    "verbose": false,
+    "log_to_console": true
+  }
+}

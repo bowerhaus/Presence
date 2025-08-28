@@ -11,7 +11,7 @@ This is a Raspberry Pi-based human presence detection system that controls a Sam
 ### Hardware Control Strategy
 - **Sensor**: DFRobot SENS0395 on GPIO 14 (trigger mode initially, UART mode planned)
 - **TV Control**: Hybrid approach using CEC for ON commands (reliable) and IR for OFF commands (avoids CEC state issues)
-- **IR Blaster**: Adafruit ADA5990 (GPIO pin TBD)
+- **IR Blaster**: Adafruit ADA5990 (GPIO 24 for both input and output)
 
 ### Timing Logic
 - **Turn ON**: Immediate with 1-2 second debouncing
@@ -87,3 +87,4 @@ The system uses a JSON configuration file (`config.json`) with the following str
 - **Phase 3**: Home automation integration
 - **Phase 4**: Multi-device control
 - Keep track of the current project status in status.md and use this as a way of tracking step by step progress in long term memory
+- keep readme.md up to date with any documentation changes.

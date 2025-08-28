@@ -1,319 +1,172 @@
-# Human Presence Sensor System - Product Requirements Document
+# Presence Detection System
 
-## 1. Executive Summary
+A Raspberry Pi-based human presence detection system that automatically controls a Samsung Frame 43" TV based on room occupancy.
 
-### 1.1 Project Overview
-A Raspberry Pi-based human presence detection system that automatically controls a Samsung Frame 43" TV, turning it on when humans are detected in the room and off when the room is vacant.
+## Features
 
-### 1.2 Key Goals
-- Automatic TV power management based on human presence
-- Energy efficiency through intelligent control
-- Reliable state management using hybrid CEC/IR control
-- Extensible architecture for future enhancements
+- Detects human presence using DFRobot SENS0395 mmWave sensor
+- Automatically turns TV on when presence is detected
+- Turns TV off after 10 minutes of no presence
+- Hybrid control using CEC (for power on) and IR blaster (for power off)
+- Configurable GPIO pins and timing parameters via config.json
+- Development mode with dry-run option for testing
 
-## 2. System Components
+## Hardware Requirements
 
-### 2.1 Hardware Requirements
-| Component | Model | Purpose | Connection |
-|-----------|-------|---------|------------|
-| Single Board Computer | Raspberry Pi (Model TBD) | Main controller | - |
-| Presence Sensor | DFRobot SENS0395 | 9m mmWave human detection | GPIO 14 (trigger mode) |
-| IR Blaster | Adafruit ADA5990 | IR remote control | GPIO (TBD) |
-| Target Display | Samsung Frame 43" TV | Controlled device | HDMI (CEC) + IR |
+- Raspberry Pi (tested on Pi 4/5)
+- DFRobot SENS0395 mmWave sensor (configurable GPIO, default: 14)
+- Adafruit ADA5990 IR blaster (configurable GPIO, default: 24)
+- Samsung Frame TV (or other CEC/IR compatible TV)
+- HDMI cable (for CEC communication)
 
-### 2.2 Software Stack
-- **Operating System**: Raspberry Pi OS (Latest stable)
-- **Programming Language**: Python 3.x
-- **Key Libraries**:
-  - RPi.GPIO - GPIO control
-  - python-cec or cec-utils - CEC control
-  - LIRC or custom IR library - IR transmission
-  - systemd - Service management
-  - logging - System logging
+## Installation
 
-## 3. Functional Requirements
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/presence-detection
+cd presence-detection
 
-### 3.1 Core Features
+# Install dependencies
+pip3 install -r requirements.txt
 
-#### 3.1.1 Presence Detection
-- **Sensor Mode**: GPIO trigger mode (initial implementation)
-- **GPIO Pin**: 14
-- **Detection Range**: Up to 9 meters
-- **Response**: Binary presence/no-presence signal
-- **Debouncing**: Required to prevent false triggers
+# Configure the system
+cp config.json config.json.backup  # Backup existing config
+# Edit config.json with your GPIO pins and settings
 
-#### 3.1.2 TV Power Control
-
-##### State Management Strategy
-Due to potential CEC state reporting limitations:
-- **Turn ON**: Use CEC command (reliable)
-- **Turn OFF**: Use IR command (reliable)
-- **Rationale**: Ensures predictable state without relying on CEC state queries
-
-##### Timing Parameters
-- **Turn ON Delay**: Immediate (with debouncing, ~1-2 seconds)
-- **Turn OFF Delay**: 10 minutes after last presence detected
-- **Debounce Period**: 1-2 seconds for presence detection
-
-#### 3.1.3 System Modes
-
-##### Production Mode
-- Runs as systemd service on boot
-- Automatic operation
-- Standard logging to systemd journal
-- Minimal console output
-
-##### Development Mode
-- Manual start/stop capability
-- Verbose logging to console and file
-- Manual TV control commands available
-- Sensor state visualization
-- Dry-run option (log actions without executing)
-
-### 3.2 Control Logic
-
-```
-STATE MACHINE:
-┌─────────────┐
-│   STARTUP   │
-└──────┬──────┘
-       │ Initialize
-       ▼
-┌─────────────┐     Presence      ┌─────────────┐
-│   TV OFF    │◄──────────────────│   TV ON     │
-│   WAITING   │                   │   ACTIVE    │
-└──────┬──────┘                   └──────▲──────┘
-       │                                  │
-       └────────Presence Detected────────┘
-                                          │
-                                   10 min timeout
-                                   (no presence)
+# Install as systemd service (optional)
+sudo ./scripts/install.sh
 ```
 
-### 3.3 IR Control Requirements
+## Configuration
 
-#### IR Code Discovery
-- System must support IR code learning/recording
-- Store learned codes in configuration file
-- Support for Samsung Frame specific codes:
-  - Power Off (required)
-  - Power Toggle (fallback)
-  - Other codes as discovered
+The system is configured via `config.json`. All GPIO pins and timing parameters are customizable.
 
-#### IR Blaster Configuration
-- Support Adafruit ADA5990 pinout
-- Configurable IR LED GPIO pins
-- Adjustable transmission parameters (carrier frequency, timing)
-
-### 3.4 CEC Control Requirements
-
-- Use HDMI CEC for TV power-on command
-- Device identification and addressing
-- Fallback handling if CEC unavailable
-- Command retry logic with configurable attempts
-
-## 4. Non-Functional Requirements
-
-### 4.1 Performance
-- Presence detection response: < 2 seconds
-- TV control command execution: < 1 second
-- System startup time: < 30 seconds
-- CPU usage: < 5% average
-- Memory usage: < 100MB
-
-### 4.2 Reliability
-- Automatic recovery from crashes (systemd restart)
-- Graceful handling of hardware failures
-- Persistent state across reboots (last known TV state)
-- Watchdog timer implementation
-
-### 4.3 Logging
-- Structured logging with levels (DEBUG, INFO, WARNING, ERROR)
-- Log rotation to prevent disk fill
-- Remote syslog support (optional)
-- Event categories:
-  - Presence state changes
-  - TV control commands sent
-  - Errors and exceptions
-  - System startup/shutdown
-
-### 4.4 Security
-- No network services in base implementation
-- Local configuration file with appropriate permissions
-- No sensitive data storage
-
-## 5. Configuration
-
-### 5.1 Configuration File Structure (config.json)
+### GPIO Pin Configuration
 ```json
 {
   "sensor": {
-    "gpio_pin": 14,
-    "debounce_ms": 1000
-  },
-  "tv_control": {
-    "off_timeout_minutes": 10,
-    "on_delay_ms": 1000
-  },
-  "cec": {
-    "enabled": true,
-    "device_address": "0.0.0.0",
-    "retry_attempts": 3
+    "gpio_pin": 14,        // GPIO pin for presence sensor (configurable)
+    "debounce_time": 2.0   // Seconds to debounce sensor readings
   },
   "ir": {
-    "enabled": true,
-    "gpio_pin": null,
-    "codes": {
-      "power_off": "learned_code_here",
-      "power_toggle": "fallback_code"
-    }
-  },
-  "logging": {
-    "level": "INFO",
-    "file": "/var/log/presence-sensor.log",
-    "max_size_mb": 100
-  },
-  "dev_mode": {
-    "enabled": false,
-    "verbose": true,
-    "dry_run": false
+    "gpio_pin": 24         // GPIO pin for IR blaster (configurable)
   }
 }
 ```
 
-## 6. Development & Testing
-
-### 6.1 Development Environment Setup
-1. Install Raspberry Pi OS
-2. Enable required interfaces (GPIO, CEC)
-3. Install Python dependencies
-4. Configure IR blaster hardware
-5. Learn IR codes from TV remote
-
-### 6.2 Testing Requirements
-- Unit tests for core logic
-- Integration tests for hardware interfaces
-- Mock modes for sensor and TV control
-- Performance benchmarking
-- Long-term stability testing (24+ hours)
-
-### 6.3 Development Tools
-- CLI interface for:
-  - Manual TV control
-  - Sensor state monitoring
-  - Configuration validation
-  - IR code learning
-  - System diagnostics
-
-## 7. Deployment
-
-### 7.1 Installation Process
-1. Clone repository
-2. Run installation script (install.sh)
-3. Configure using setup wizard or manual config
-4. Test in dev mode
-5. Enable systemd service
-
-### 7.2 Service Management
-```bash
-# Service commands
-sudo systemctl start presence-sensor
-sudo systemctl stop presence-sensor
-sudo systemctl enable presence-sensor
-sudo systemctl status presence-sensor
-
-# Dev mode
-python3 presence_sensor.py --dev --verbose
+### Timing Configuration
+```json
+{
+  "tv_control": {
+    "turn_off_delay": 600,  // Seconds to wait before turning off TV (default: 10 minutes)
+    "turn_on_delay": 0      // Seconds to wait before turning on TV (default: immediate)
+  }
+}
 ```
 
-## 8. Future Enhancements
+### Development Mode
+```json
+{
+  "dev_mode": {
+    "enabled": false,       // Enable development mode
+    "dry_run": false,       // Simulate TV control without actual commands
+    "verbose": false        // Enable verbose logging
+  }
+}
+```
 
-### 8.1 Phase 2: UART Sensor Mode
-- Advanced sensor configuration via UART
-- Sensitivity adjustment
-- Zone-based detection
-- Movement tracking
-- Presence count estimation
+## Usage
 
-### 8.2 Phase 3: Smart Features
-- Time-based profiles (different behavior day/night)
-- Integration with home automation (Home Assistant, etc.)
-- Web interface for configuration and monitoring
-- Mobile app for manual override
-- Multi-sensor support
-- Machine learning for pattern recognition
+### Development Mode
+```bash
+# Run with verbose output
+python3 presence_sensor.py --dev --verbose
 
-### 8.3 Phase 4: Advanced Control
-- Control multiple devices
-- Scene management (lights, audio, etc.)
-- Vacation mode (security presence simulation)
-- Energy usage tracking and reporting
+# Run in dry-run mode (no actual TV control)
+python3 presence_sensor.py --dev --dry-run
 
-## 9. Error Handling & Recovery
+# View logs
+tail -f /var/log/presence-sensor.log
+```
 
-### 9.1 Failure Scenarios
-| Scenario | Detection | Recovery Action |
-|----------|-----------|-----------------|
-| Sensor disconnection | GPIO read timeout | Log error, retry, alert if persistent |
-| CEC command failure | No ACK received | Retry 3x, fall back to IR |
-| IR transmission failure | No state change detected | Log error, retry once |
-| System crash | Systemd monitoring | Automatic restart with backoff |
-| Configuration error | Validation failure | Use defaults, log warning |
+### Production Mode
+```bash
+# Start the service
+sudo systemctl start presence-sensor
 
-### 9.2 Monitoring & Alerts
-- Health check endpoint (future)
-- Heartbeat logging
-- Error rate monitoring
-- System resource alerts
+# Enable auto-start on boot
+sudo systemctl enable presence-sensor
 
-## 10. Success Metrics
+# Check status
+sudo systemctl status presence-sensor
 
-- **Reliability**: 99% uptime
-- **Accuracy**: < 1% false positive/negative rate
-- **Response Time**: < 2 seconds for presence detection
-- **Energy Savings**: Measurable reduction in TV runtime
-- **User Satisfaction**: Seamless, unnoticed operation
+# View logs
+journalctl -u presence-sensor -f
+```
 
-## 11. Project Timeline
+## Architecture
 
-### Phase 1: MVP (Current)
-- Basic presence detection (GPIO trigger mode)
-- CEC + IR control implementation
-- Dev mode with logging
-- Systemd service setup
+The system uses a state machine with the following states:
+- **TV OFF**: Waiting for presence detection
+- **Presence Detected**: Immediate TV power on via CEC
+- **TV ON**: Monitoring for continued presence
+- **No Presence Timer**: 10-minute countdown after last presence
+- **TV OFF Command**: Power off via IR blaster
 
-### Phase 2: Enhancement (Future)
-- UART sensor mode
-- Web interface
-- Advanced configuration
+## Project Structure
 
-### Phase 3: Integration (Future)
-- Home automation integration
-- Multi-device support
-- Advanced analytics
+```
+presence_sensor.py       # Main application
+config.json             # Configuration file (GPIO pins, timing, etc.)
+ir_codes.json          # Learned IR codes
+lib/
+  sensor.py            # Sensor abstraction
+  tv_control.py        # CEC/IR control logic
+  state_machine.py     # State management
+tests/
+  test_sensor.py       # Unit tests
+  test_tv_control.py
+scripts/
+  install.sh           # Installation script
+  learn_ir.py          # IR code learning utility
+```
 
-## 12. Appendices
+## Troubleshooting
 
-### A. Samsung Frame TV Specifications
-- Model: Frame 43"
-- CEC Support: Yes (limited state reporting)
-- IR Requirements: Standard Samsung protocol
-- Power Consumption: TBD
+### Sensor not detecting presence
+- Check GPIO pin connection (verify pin number in config.json)
+- Verify sensor power supply (5V)
+- Adjust debounce time in config.json
 
-### B. Reference Documentation
-- [DFRobot SENS0395 Datasheet](https://www.dfrobot.com/)
-- [Adafruit ADA5990 Documentation](https://www.adafruit.com/)
-- [HDMI CEC Specification](https://www.hdmi.org/)
-- [Samsung IR Codes Database](TBD)
+### TV not responding to commands
+- Verify CEC is enabled on TV
+- Check HDMI cable supports CEC
+- Test IR blaster positioning and codes
+- Run in dry-run mode to verify logic
 
-### C. Glossary
-- **CEC**: Consumer Electronics Control - HDMI control protocol
-- **IR**: Infrared - Remote control technology
-- **GPIO**: General Purpose Input/Output
-- **mmWave**: Millimeter wave radar technology
-- **Debouncing**: Filtering rapid signal changes to prevent false triggers
+### Service not starting
+- Check logs: `journalctl -u presence-sensor -n 50`
+- Verify config.json is valid JSON
+- Ensure GPIO permissions: user must be in `gpio` group
 
----
-*Document Version: 1.0*  
-*Last Updated: 2025-08-28*  
-*Status: Initial Draft*
+## Complete Configuration Example
+
+See `config.json` for the complete configuration structure with all available options including:
+- Sensor GPIO pin and debounce settings
+- TV control timing parameters
+- CEC configuration and retry logic
+- IR blaster GPIO pin and protocol settings
+- Logging levels and file paths
+- Development mode options
+
+## License
+
+MIT License - see LICENSE file for details
+
+## Contributing
+
+Pull requests welcome! Please ensure:
+- Code follows Python PEP 8 style guide
+- Unit tests pass
+- Configuration changes are documented
+- Hardware connections are clearly described
