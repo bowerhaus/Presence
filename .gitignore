@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Logs
+*.log
+logs/
+/var/log/presence-sensor.log
+
+# Configuration (local overrides)
+config.local.json
+config.dev.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# Runtime
+*.pid
+.state/
