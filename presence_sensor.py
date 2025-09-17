@@ -21,6 +21,7 @@ except ImportError:
     lgpio = None
 
 from samsung_tv_control import SamsungTVController
+from uart_sensor import UARTSensor
 
 
 class PresenceSensor:
@@ -30,8 +31,7 @@ class PresenceSensor:
         self.config = self._load_config(config_path)
         self.logger = self._setup_logging()
         
-        self.sensor_pin = self.config["sensor"]["gpio_pin"]
-        self.debounce_time = self.config["sensor"]["debounce_time"]
+        self.sensor_mode = self.config["sensor"].get("mode", "trigger")
         self.turn_off_delay = self.config["tv_control"]["turn_off_delay"]
         
         self.tv_controller = None
@@ -42,15 +42,23 @@ class PresenceSensor:
         self.running = False
         self.turn_off_timer = None
         
-        # GPIO handling variables
+        # Sensor handling variables
+        self.uart_sensor = None
         self.gpio_handle = None
         self.use_lgpio = False
         
         self.dev_mode = self.config.get("dev_mode", {})
         self.dry_run = self.dev_mode.get("dry_run", False)
         
-        self._setup_gpio()
+        if self.sensor_mode == "uart":
+            self._setup_uart_sensor()
+        else:
+            self.sensor_pin = self.config["sensor"]["trigger"]["gpio_pin"]
+            self.debounce_time = self.config["sensor"]["trigger"]["debounce_time"]
+            self._setup_gpio()
+            
         self._setup_tv_controller()
+        self._sync_tv_state()
     
     def _load_config(self, config_path: str) -> dict:
         """Load configuration from JSON file"""
@@ -65,6 +73,12 @@ class PresenceSensor:
         """Setup logging configuration"""
         log_config = self.config.get("logging", {})
         log_level = getattr(logging, log_config.get("level", "INFO").upper())
+        
+        # Configure root logger to ensure all modules get the same config
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
         
         logger = logging.getLogger(__name__)
         logger.setLevel(log_level)
@@ -83,7 +97,47 @@ class PresenceSensor:
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
         
+        # Also configure samsung_tv_control logger
+        tv_logger = logging.getLogger('samsung_tv_control')
+        tv_logger.setLevel(log_level)
+        
         return logger
+    
+    def _setup_uart_sensor(self):
+        """Initialize UART sensor"""
+        uart_config = self.config["sensor"]["uart"]
+        self.uart_sensor = UARTSensor(
+            port=uart_config["port"],
+            baudrate=uart_config["baudrate"],
+            timeout=uart_config.get("timeout", 1.0)
+        )
+        
+        # Set up callbacks
+        self.uart_sensor.on_presence_detected = self._on_presence_detected_uart
+        self.uart_sensor.on_presence_lost = self._on_presence_lost_uart
+        
+        if not self.uart_sensor.start():
+            self.logger.error("Failed to start UART sensor")
+            raise RuntimeError("UART sensor initialization failed")
+        
+        self.logger.info("UART sensor initialized successfully")
+    
+    def _on_presence_detected_uart(self):
+        """Callback when UART sensor detects presence"""
+        if not self.presence_detected:
+            self.presence_detected = True
+            self.last_presence_time = datetime.now()
+            self.logger.info("PRESENCE DETECTED")
+            self._cancel_tv_off()
+            self._turn_tv_on()
+    
+    def _on_presence_lost_uart(self):
+        """Callback when UART sensor loses presence"""
+        if self.presence_detected:
+            self.presence_detected = False
+            self.last_presence_lost_time = datetime.now()
+            self.logger.info("PRESENCE LOST")
+            self._schedule_tv_off()
     
     def _setup_gpio(self):
         """Initialize GPIO for sensor reading"""
@@ -146,12 +200,38 @@ class PresenceSensor:
             self.logger.error(f"TV controller setup failed: {e}")
             sys.exit(1)
     
+    def _sync_tv_state(self):
+        """Synchronize internal TV state with actual TV state"""
+        if self.dry_run:
+            self.logger.info("DRY RUN: Skipping TV state sync")
+            return
+            
+        try:
+            actual_state = self.tv_controller.get_power_state()
+            self.tv_on = actual_state
+            self.logger.info(f"TV state synchronized: {self.tv_on}")
+            
+            # If TV is ON but no presence detected, schedule turn off
+            if self.tv_on and not self.presence_detected:
+                self.logger.info("TV is ON with no presence detected, scheduling turn off")
+                self._schedule_tv_off()
+        except Exception as e:
+            self.logger.warning(f"Could not sync TV state: {e}")
+            # Default to False (off) if we can't determine state
+            self.tv_on = False
+    
     def _read_sensor(self) -> bool:
         """Read the presence sensor state"""
         # Use lgpio if available
         if self.use_lgpio and self.gpio_handle is not None:
             try:
-                return lgpio.gpio_read(self.gpio_handle, self.sensor_pin) == 1
+                raw_value = lgpio.gpio_read(self.gpio_handle, self.sensor_pin)
+                # Check if sensor uses inverted logic (LOW = presence detected)
+                inverted = self.config.get("sensor", {}).get("inverted_logic", False)
+                if inverted:
+                    return raw_value == 0
+                else:
+                    return raw_value == 1
             except Exception as e:
                 self.logger.error(f"lgpio read error: {e}")
                 return False
@@ -190,6 +270,8 @@ class PresenceSensor:
                 self.logger.error("Failed to turn TV on")
         except Exception as e:
             self.logger.error(f"Error turning TV on: {e}")
+            import traceback
+            self.logger.debug(f"Full traceback: {traceback.format_exc()}")
     
     def _turn_tv_off(self):
         """Turn TV off after delay"""
@@ -263,29 +345,44 @@ class PresenceSensor:
     def _monitor_loop(self):
         """Main monitoring loop"""
         self.logger.info("Starting presence monitoring...")
-        last_sensor_state = False
         
-        while self.running:
-            try:
-                current_state = self._read_sensor()
-                
-                if current_state and not last_sensor_state:
-                    self._on_presence_detected()
-                elif not current_state and last_sensor_state:
-                    self._on_presence_lost()
-                
-                last_sensor_state = current_state
-                
-                if self.dev_mode.get("verbose", False):
-                    self.logger.debug(f"Sensor: {current_state}, Presence: {self.presence_detected}, TV: {self.tv_on}")
-                
-                time.sleep(0.1)  # 100ms polling
-                
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                self.logger.error(f"Error in monitor loop: {e}")
-                time.sleep(1)
+        if self.sensor_mode == "uart":
+            # UART mode uses callbacks, just keep the main thread alive
+            while self.running:
+                try:
+                    if self.dev_mode.get("verbose", False):
+                        status = "PRESENT" if self.presence_detected else "ABSENT"
+                        self.logger.debug(f"Status: {status}, TV: {'ON' if self.tv_on else 'OFF'}")
+                    time.sleep(1)  # 1s status check
+                except KeyboardInterrupt:
+                    break
+                except Exception as e:
+                    self.logger.error(f"Error in monitor loop: {e}")
+                    time.sleep(1)
+        else:
+            # GPIO trigger mode - polling loop
+            last_sensor_state = False
+            
+            while self.running:
+                try:
+                    current_state = self._read_sensor()
+                    
+                    if current_state and not last_sensor_state:
+                        self._on_presence_detected()
+                    elif not current_state and last_sensor_state:
+                        self._on_presence_lost()
+                    
+                    last_sensor_state = current_state
+                    
+                    if self.dev_mode.get("verbose", False):
+                        self.logger.debug(f"Sensor: {current_state}, Presence: {self.presence_detected}, TV: {self.tv_on}")
+                    
+                    time.sleep(0.1)  # 100ms polling
+                except KeyboardInterrupt:
+                    break
+                except Exception as e:
+                    self.logger.error(f"Error in monitor loop: {e}")
+                    time.sleep(1)
     
     def start(self):
         """Start the presence detection system"""
@@ -311,19 +408,24 @@ class PresenceSensor:
         if self.turn_off_timer:
             self.turn_off_timer.cancel()
         
-        # Cleanup GPIO resources
-        if self.use_lgpio and self.gpio_handle is not None:
-            try:
-                lgpio.gpio_free(self.gpio_handle, self.sensor_pin)
-                lgpio.gpiochip_close(self.gpio_handle)
-            except:
-                pass
-        
-        if GPIO is not None and not self.use_lgpio:
-            try:
-                GPIO.cleanup()
-            except:
-                pass
+        # Cleanup sensor resources
+        if self.sensor_mode == "uart":
+            if self.uart_sensor:
+                self.uart_sensor.stop()
+        else:
+            # Cleanup GPIO resources
+            if self.use_lgpio and self.gpio_handle is not None:
+                try:
+                    lgpio.gpio_free(self.gpio_handle, self.sensor_pin)
+                    lgpio.gpiochip_close(self.gpio_handle)
+                except:
+                    pass
+            
+            if GPIO is not None and not self.use_lgpio:
+                try:
+                    GPIO.cleanup()
+                except:
+                    pass
         
         self.logger.info("System stopped")
     

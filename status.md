@@ -193,10 +193,233 @@ PRESENCE LOST → Scheduling TV off in 600 seconds
 
 ---
 
-## Next Immediate Actions:
-1. **Connect and test mmWave sensor on GPIO 14**
-2. **Run end-to-end presence detection with Samsung network control**
-3. **Optimize timing and reliability for production deployment**
+## 🔄 CURRENT ACTION PLAN (2025-09-17)
+**Status:** 🟡 IN PROGRESS  
+**Platform:** Raspberry Pi Compute Module 5 (CM5)
+**Last Updated:** 2025-09-17
+
+---
+
+## 🎯 PROJECT GOAL
+Create a reliable presence detection system using DFRobot SENS0395 mmWave sensor to automatically control Samsung Frame TV via network API.
+
+---
+
+## 📋 IMPLEMENTATION PLAN & PROGRESS
+
+### Phase 1: Resolve Sensor Communication ✅ COMPLETED (2025-09-17)
+**Objective:** Get reliable data from DFRobot SENS0395 sensor
+
+#### Tasks:
+- [x] **Hardware Verification**
+  - [x] Verified sensor wiring (TX→GPIO1/RX, 5V power, GND)
+  - [x] Confirmed proper pin connections on CM5
+  - [x] Power and data lines tested successfully
+
+- [x] **UART Communication Testing**
+  - [x] Tested `/dev/ttyAMA1` availability and permissions ✅
+  - [x] Successfully ran `debug_sensor_strings.py --port /dev/ttyAMA1`
+  - [x] Confirmed 115200 baud rate working correctly
+  - [x] Captured sensor output: `$JYBSS,0/1, , , *` format
+
+- [x] **Sensor Configuration**
+  - [x] Configured detection range to 2 meters
+  - [x] Settings saved to non-volatile memory
+  - [x] Configuration persists across power cycles
+
+**Resolution:** 
+- UART mode working perfectly on `/dev/ttyAMA1`
+- Sensor outputs presence data at 1Hz
+- Detection range successfully limited to 2 meters
+
+---
+
+### Phase 2: Implement Sensor String Parsing ✅ COMPLETED (2025-09-17)
+**Objective:** Parse UART data for presence detection
+
+#### Tasks:
+- [x] **Parse Sensor Protocol**
+  - [x] Decoded UART string format: `$JYBSS,1, , , *` (presence) / `$JYBSS,0, , , *` (no presence)
+  - [x] Identified presence indicators (1=detected, 0=not detected)
+  - [x] Documented in debug scripts and sensor module
+
+- [x] **Update Presence Detection Code**
+  - [x] Created `uart_sensor.py` module for UART communication
+  - [x] Modified `presence_sensor.py` to support both UART and GPIO modes
+  - [x] Added robust error handling and reconnection logic
+  - [x] Implemented callbacks for presence state changes
+
+- [x] **Testing**
+  - [x] Tested parsing logic with real sensor data
+  - [x] Integration tested with presence detection system
+  - [x] Verified sub-second response time
+
+---
+
+### Phase 3: Configuration Updates ✅ COMPLETED (2025-09-17)
+**Objective:** Support both trigger and UART modes
+
+#### Tasks:
+- [x] **Update config.json**
+  - [x] Added sensor mode selection (trigger/uart)
+  - [x] Added UART settings (port, baud, timeout)
+  - [x] Maintained backward compatibility with trigger mode
+
+- [ ] **Example Configuration**
+  ```json
+  "sensor": {
+    "mode": "uart",
+    "uart": {
+      "port": "/dev/ttyAMA1",
+      "baudrate": 115200,
+      "timeout": 1.0
+    },
+    "trigger": {
+      "gpio_pin": 14,
+      "debounce_time": 2.0
+    }
+  }
+  ```
+
+---
+
+### Phase 4: System Integration Testing ⏳ WAITING
+**Objective:** Validate end-to-end functionality
+
+#### Tasks:
+- [ ] **Functional Testing**
+  - [ ] Test presence detection → TV on (immediate)
+  - [ ] Test no presence → TV off (10 min delay)
+  - [ ] Verify state persistence across restarts
+
+- [ ] **Reliability Testing**
+  - [ ] 24-hour continuous operation test
+  - [ ] Network interruption recovery test
+  - [ ] Power cycle recovery test
+
+- [ ] **Performance Validation**
+  - [ ] Response time < 2 seconds
+  - [ ] CPU usage < 5%
+  - [ ] Memory usage stable
+
+---
+
+### Phase 5: Production Deployment ⏳ WAITING
+**Objective:** Deploy as reliable system service
+
+#### Tasks:
+- [ ] **Service Configuration**
+  - [ ] Create `/etc/systemd/system/presence-sensor.service`
+  - [ ] Configure auto-restart on failure
+  - [ ] Set up proper dependencies
+
+- [ ] **Installation Automation**
+  - [ ] Create `install.sh` script
+  - [ ] Automate virtual environment setup
+  - [ ] Handle Samsung TV pairing
+
+- [ ] **Monitoring Setup**
+  - [ ] Configure log rotation
+  - [ ] Add health check endpoint
+  - [ ] Set up alerting for failures
+
+---
+
+### Phase 6: Optional Enhancements 🔵 FUTURE
+**Objective:** Add advanced features
+
+#### Potential Features:
+- [ ] MQTT integration for Home Assistant
+- [ ] Web interface for configuration
+- [ ] Mobile app for manual control
+- [ ] Scheduling (disable during certain hours)
+- [ ] Multi-zone detection with multiple sensors
+- [ ] Energy usage tracking
+
+---
+
+## 🚧 CURRENT BLOCKERS
+
+1. **Primary Blocker: Sensor Communication**
+   - Cannot proceed until sensor data is readable
+   - May need hardware debugging tools
+   - Consider purchasing alternative sensor as backup
+
+2. **Platform Issues:**
+   - CM5 incompatible with some GPIO libraries
+   - Limited to hardware UART (no software serial)
+   - May need to document CM5-specific setup
+
+---
+
+## ✅ COMPLETED COMPONENTS
+
+### Samsung TV Control Module
+- Network discovery and auto-configuration
+- WebSocket API integration
+- Power state detection
+- Wake-on-LAN support
+- Smart power control logic
+
+### Core Framework
+- Presence detection state machine
+- Configuration system
+- Logging infrastructure
+- Development/dry-run modes
+- Timer management
+
+### Development Tools
+- `discover_samsung_tv.py` - TV discovery
+- `samsung_tv_control.py` - TV control testing
+- `debug_sensor_strings.py` - UART debugging
+- Multiple debug utilities for sensor testing
+
+---
+
+## 📝 NOTES FOR TRACKING
+
+### Test Commands Reference:
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Test TV control
+python3 samsung_tv_control.py status
+
+# Test sensor UART
+python3 debug_sensor_strings.py --port /dev/ttyAMA1 --duration 30
+
+# Run presence system (dry run)
+python3 presence_sensor.py --dev --dry-run --verbose
+```
+
+### Hardware Checklist:
+- [x] Raspberry Pi CM5 setup
+- [x] Samsung Frame TV network configured (192.168.0.171)
+- [ ] DFRobot SENS0395 sensor working
+- [x] Virtual environment with dependencies
+- [ ] Systemd service configured
+
+### Documentation To Update:
+- [ ] README.md - final setup instructions
+- [ ] CLAUDE.md - any new development patterns
+- [ ] GPIO_PINOUT.md - final pin assignments
+
+---
+
+## 🔄 PROGRESS TRACKING
+
+**Last Action:** Successfully integrated UART sensor and tested end-to-end system (2025-09-17)
+**Next Action:** Deploy as systemd service for production use
+**Status:** System fully functional in development mode - ready for production deployment
+
+### Today's Achievements (2025-09-17):
+- ✅ Fixed UART sensor communication on CM5
+- ✅ Configured sensor for 2-meter detection range
+- ✅ Created modular UART sensor module
+- ✅ Updated presence_sensor.py for dual-mode support
+- ✅ Successfully tested presence → TV ON → absence → TV OFF cycle
+- ✅ Created configuration and debugging utilities
 
 ---
 

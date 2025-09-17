@@ -17,9 +17,12 @@ try:
     from samsungtvws import SamsungTVWS
     import wakeonlan
     HAS_WAKEONLAN = True
+    HAS_SAMSUNGTVWS = True
 except ImportError:
+    SamsungTVWS = None
     wakeonlan = None
     HAS_WAKEONLAN = False
+    HAS_SAMSUNGTVWS = False
 
 
 class SamsungTVController:
@@ -44,15 +47,27 @@ class SamsungTVController:
         except Exception as e:
             raise RuntimeError(f"Failed to load config: {e}")
     
-    def _connect(self) -> bool:
+    def _connect(self, force_new: bool = False) -> bool:
         """Establish connection to Samsung TV"""
-        if self.tv is not None:
+        if not HAS_SAMSUNGTVWS:
+            self.logger.error("Samsung TV library not available. Install with: pip install samsungtvws[async,encrypted]")
+            return False
+            
+        # Check if we should reuse existing connection
+        if not force_new and self.tv is not None:
             try:
                 info = self.tv.rest_device_info()
                 if info:
+                    self.logger.debug("Reusing existing TV connection")
                     return True
-            except Exception:
+            except Exception as e:
+                self.logger.debug(f"Existing connection failed: {e}, creating new connection")
                 self.tv = None
+        
+        # Close existing connection if forcing new
+        if force_new and self.tv is not None:
+            self.logger.debug("Forcing new connection, closing existing")
+            self.tv = None
         
         try:
             ip_address = self.tv_config["ip_address"]
@@ -160,9 +175,37 @@ class SamsungTVController:
             self.logger.info("TV is already on")
             return True
         elif current_state == 'standby':
-            # TV is in standby - WebSocket toggle should work
-            self.logger.info("TV in standby, using WebSocket toggle")
-            return self._websocket_power_toggle()
+            # TV is in standby - try multiple methods
+            self.logger.info("TV in standby, attempting power on")
+            
+            # Strategy 1: WebSocket toggle (primary method for standby)
+            self.logger.info("Trying WebSocket toggle from standby")
+            success = self._websocket_power_toggle()
+            if success:
+                return True
+            
+            # Strategy 2: CEC (effective for standby mode)
+            self.logger.info("WebSocket failed, trying CEC power on")
+            if self._cec_power_on():
+                time.sleep(5)
+                new_state = self._get_actual_power_state()
+                if new_state == 'on':
+                    self.logger.info("TV powered on via CEC from standby")
+                    return True
+                elif new_state == 'standby':
+                    # CEC might have just woken the TV, try WebSocket again
+                    self.logger.info("TV still in standby after CEC, retrying WebSocket")
+                    return self._websocket_power_toggle()
+            
+            # Strategy 3: Force Wake-on-LAN + WebSocket (last resort)
+            self.logger.info("Trying Wake-on-LAN + WebSocket combo")
+            if self._wake_tv():
+                time.sleep(8)  # Give TV time to wake
+                # Try WebSocket toggle after Wake-on-LAN
+                return self._websocket_power_toggle()
+            
+            self.logger.error("All standby power-on methods failed")
+            return False
         else:
             # TV is fully off or unknown state - try multiple strategies
             self.logger.info("TV appears fully off, trying multiple power-on methods")
@@ -206,31 +249,61 @@ class SamsungTVController:
         retry_count = self.config.get("tv_control", {}).get("retry_attempts", 3)
         retry_delay = self.config.get("tv_control", {}).get("retry_delay", 2)
         
+        initial_state = None
         for attempt in range(retry_count):
             try:
-                if self._connect():
-                    initial_state = self._get_actual_power_state()
+                # Force new connection on retries to avoid stale connections
+                force_new = attempt > 0
+                if self._connect(force_new=force_new):
+                    if initial_state is None:
+                        initial_state = self._get_actual_power_state()
+                        self.logger.debug(f"Initial TV state before toggle: {initial_state}")
+                    
                     self.tv.shortcuts().power()
-                    self.logger.info("WebSocket power toggle command sent")
-                    time.sleep(3)
+                    self.logger.info(f"WebSocket power toggle sent (attempt {attempt + 1}/{retry_count})")
+                    time.sleep(5)  # Wait for TV to respond
                     
                     # Verify state changed
                     final_state = self._get_actual_power_state()
                     if final_state and final_state != initial_state:
                         self.logger.info(f"TV state changed: {initial_state} -> {final_state}")
                         return final_state == 'on'
+                    elif final_state == initial_state:
+                        self.logger.warning(f"TV state unchanged after toggle attempt {attempt + 1}: {initial_state}")
+                        # Continue to next attempt
                     else:
-                        self.logger.warning(f"TV state unchanged after toggle: {final_state}")
+                        self.logger.warning(f"Could not verify TV state after toggle attempt {attempt + 1}")
                 else:
-                    self.logger.warning(f"WebSocket connection attempt {attempt + 1} failed")
+                    self.logger.warning(f"WebSocket connection attempt {attempt + 1}/{retry_count} failed")
                     
             except Exception as e:
-                self.logger.error(f"WebSocket toggle attempt {attempt + 1} failed: {e}")
+                error_msg = str(e)
+                if "EOF occurred in violation of protocol" in error_msg or "_ssl.c" in error_msg:
+                    # SSL connection drop is normal during TV state changes
+                    self.logger.info(f"WebSocket toggle attempt {attempt + 1}: SSL connection dropped (normal during TV state change)")
+                    # Check if the toggle actually worked despite the SSL error
+                    time.sleep(2)
+                    final_state = self._get_actual_power_state()
+                    if final_state and initial_state and final_state != initial_state:
+                        self.logger.info(f"TV toggle successful despite SSL error: {initial_state} -> {final_state}")
+                        return final_state == 'on'
+                    else:
+                        self.logger.debug(f"State after SSL error: {final_state}")
+                else:
+                    self.logger.error(f"WebSocket toggle attempt {attempt + 1}/{retry_count} failed: {e}")
             
             if attempt < retry_count - 1:
+                self.logger.info(f"Waiting {retry_delay}s before retry...")
                 time.sleep(retry_delay)
         
-        self.logger.error("WebSocket power toggle failed")
+        # Final check after all attempts
+        if initial_state:
+            final_check = self._get_actual_power_state()
+            if final_check and final_check != initial_state:
+                self.logger.info(f"TV state changed after retries: {initial_state} -> {final_check}")
+                return final_check == 'on'
+        
+        self.logger.error(f"WebSocket power toggle failed after {retry_count} attempts")
         return False
     
     def _get_actual_power_state(self) -> Optional[str]:
@@ -301,12 +374,36 @@ class SamsungTVController:
                     self.logger.warning(f"Connection attempt {attempt + 1} failed")
                     
             except Exception as e:
-                self.logger.error(f"Power off attempt {attempt + 1} failed: {e}")
+                error_msg = str(e)
+                if "EOF occurred in violation of protocol" in error_msg or "_ssl.c" in error_msg:
+                    # SSL connection drop during power-off is normal for Samsung TVs
+                    self.logger.info(f"Power off attempt {attempt + 1}: SSL connection dropped (normal for TV power-off)")
+                    # Check if TV actually turned off despite the SSL error
+                    time.sleep(2)
+                    if self._check_tv_standby() or not self._is_tv_reachable():
+                        self.logger.info("TV successfully turned off (confirmed despite SSL error)")
+                        self.last_power_off_time = datetime.now()
+                        return True
+                else:
+                    self.logger.error(f"Power off attempt {attempt + 1} failed: {e}")
             
             if attempt < retry_count - 1:
                 time.sleep(retry_delay)
         
-        # Final check - even if we can't verify, assume success if we sent the command
+        # Final check - try one more verification before assuming success
+        try:
+            final_state = self._get_actual_power_state()
+            if final_state and final_state != 'on':
+                self.logger.info(f"TV successfully turned off (final state: {final_state})")
+                self.last_power_off_time = datetime.now()
+                return True
+            elif not self._is_tv_reachable():
+                self.logger.info("TV successfully turned off (unreachable)")
+                self.last_power_off_time = datetime.now()
+                return True
+        except Exception:
+            pass
+        
         # Samsung TVs often stay network-reachable in standby mode
         self.logger.warning("Could not verify TV is off, but command was sent")
         self.last_power_off_time = datetime.now()
@@ -333,13 +430,25 @@ class SamsungTVController:
     
     def ensure_power_state(self, desired_state: bool) -> bool:
         """Ensure TV is in desired power state (context-aware control)"""
+        self.logger.debug(f"Ensuring TV power state: {'ON' if desired_state else 'OFF'}")
+        
         if desired_state:
             # Want TV ON - always try power_on (it will handle current state)
-            return self.power_on()
+            result = self.power_on()
+            if result:
+                self.logger.info("Successfully ensured TV is ON")
+            else:
+                self.logger.error("Failed to ensure TV is ON")
+            return result
         else:
             # Want TV OFF - only try if TV appears to be on
             if self._is_tv_reachable():
-                return self.power_off()
+                result = self.power_off()
+                if result:
+                    self.logger.info("Successfully ensured TV is OFF")
+                else:
+                    self.logger.error("Failed to ensure TV is OFF")
+                return result
             else:
                 # TV already appears off
                 self.logger.info("TV already appears to be off")
