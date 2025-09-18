@@ -1,67 +1,82 @@
 # Presence Detection System
 
-A Raspberry Pi-based human presence detection system that automatically controls a Samsung Frame 43" TV based on room occupancy using Samsung's network API.
+A Raspberry Pi-based human presence detection system that automatically controls a Samsung Frame 43" TV based on room occupancy.
 
-## Features
+⚠️ **PROJECT STATUS: TV CONTROL UNDER DEVELOPMENT** ⚠️
 
-- **Network-Based TV Control**: Reliable Samsung TV control via WiFi/Ethernet (no IR hardware required)
-- **Accurate Power State Detection**: Real-time TV state monitoring using Samsung PowerState API
-- **Human Presence Detection**: DFRobot SENS0395 mmWave sensor for reliable occupancy detection
-- **Smart Power Management**: Immediate TV on, 10-minute delayed TV off
-- **Auto-Discovery**: Automatic Samsung TV detection and configuration on local network
-- **Development Mode**: Dry-run testing with verbose logging
-- **Virtual Environment**: Clean dependency management with isolated Python environment
+The presence detection system is **fully functional** but TV control remains **unreliable** due to Samsung WebSocket API limitations. Multiple control methods have been attempted and documented in `archive_failed_attempts/`.
+
+## Current Status
+
+✅ **Working Components:**
+- **Human Presence Detection**: DFRobot SENS0395 mmWave sensor via UART (2m range configured)
+- **Sensor Framework**: Complete UART communication and GPIO trigger modes
+- **Configuration System**: JSON-based configuration with development modes
+- **Logging Infrastructure**: Comprehensive logging with file/console output
+
+⚠️ **Problematic Components:**
+- **Samsung TV Control**: Network API has intermittent WebSocket failures
+- **Power State Management**: Connection reuse issues cause stale connections
+
+❌ **Failed Control Methods (See `archive_failed_attempts/`):**
+- Direct Tapo PyP100 smart plug control (authentication failures)
+- Amazon Alexa AlexaPy integration (2FA/security blocking)
+- Kasa smart plug protocol (device incompatibility)
 
 ## Hardware Requirements
 
-- **Raspberry Pi** (tested on Pi 4/5)
-- **DFRobot SENS0395 mmWave sensor** (GPIO 14, configurable)
-- **Samsung Frame TV** (or other Samsung Smart TV with network API support, 2016+)
-- **Network Connection**: TV and Pi on same network (WiFi/Ethernet)
+✅ **Currently Working:**
+- **Raspberry Pi CM5** (tested and configured)
+- **DFRobot SENS0395 mmWave sensor** (UART on `/dev/ttyAMA1`, 2m detection range)
+- **Network Connection**: WiFi connectivity established
 
-### ~~Eliminated Hardware~~ ✅
-- ~~Adafruit IR blaster~~ - No longer needed with network control
-- ~~HDMI CEC connection~~ - Optional backup only
+⚠️ **TV Control Hardware (Unreliable):**
+- **Samsung Frame 43" TV** (WebSocket API intermittently functional)
+- **TP-Link Tapo Smart Plug** (manual Alexa control works, API control failed)
+
+### Eliminated Hardware ❌
+- ~~Adafruit IR blaster~~ - Complex setup, limited reliability
+- ~~HDMI CEC connection~~ - 25-second cooldowns, poor power-off support
 
 ## Quick Start
 
 ### 1. Clone and Setup
 ```bash
 git clone <your-repo-url>
-cd presence-detection
+cd Presence
 
-# Create virtual environment and install dependencies
-python3 -m venv venv
+# Virtual environment already configured with dependencies
 source venv/bin/activate
-pip install samsungtvws[async,encrypted]
 ```
 
-### 2. Discover and Configure TV
+### 2. Test Presence Detection (Working)
 ```bash
 # Activate virtual environment (always required)
 source venv/bin/activate
 
-# Auto-discover Samsung TV on network
-python3 discover_samsung_tv.py
-```
-This will automatically configure your TV's IP address, port, and Wake-on-LAN settings in `config.json`.
+# Test presence detection with real sensor
+python3 presence_sensor.py --dev --dry-run --verbose
 
-### 3. Test TV Control
+# Test sensor UART communication directly
+python3 debug_sensor_strings.py --port /dev/ttyAMA1 --duration 30
+```
+
+### 3. Test TV Control (Unreliable)
 ```bash
-# Test power control
+# Discover Samsung TV on network
+python3 discover_samsung_tv.py
+
+# Test power control (may fail intermittently)
 python3 samsung_tv_control.py status    # Check current TV state
 python3 samsung_tv_control.py on        # Turn TV on
 python3 samsung_tv_control.py off       # Turn TV off
-python3 samsung_tv_control.py info      # Show TV details
 ```
 
-### 4. Test Presence Detection System
+### 4. Current Functional Test
 ```bash
-# Test in development mode (simulated sensor)
+# Test the working presence detection system
 python3 presence_sensor.py --dev --dry-run --verbose
-
-# With actual sensor connected
-python3 presence_sensor.py --dev --verbose
+# This will show presence detection working with simulated TV control
 ```
 
 ## Configuration
@@ -83,13 +98,20 @@ The system uses `config.json` for all settings. Key sections:
 }
 ```
 
-### Sensor Configuration
+### Sensor Configuration (Working)
 ```json
 {
   "sensor": {
-    "gpio_pin": 14,           // GPIO pin for presence sensor
-    "debounce_time": 2.0,     // Sensor debounce seconds
-    "mode": "trigger"         // Sensor mode (trigger/uart)
+    "mode": "uart",                    // UART mode (working)
+    "uart": {
+      "port": "/dev/ttyAMA1",          // UART port for CM5
+      "baudrate": 115200,              // Communication speed
+      "timeout": 1.0                   // Read timeout
+    },
+    "trigger": {
+      "gpio_pin": 14,                  // GPIO pin (backup mode)
+      "debounce_time": 2.0             // Sensor debounce seconds
+    }
   }
 }
 ```
@@ -290,14 +312,23 @@ pip install samsungtvws[async,encrypted]
 
 ## Development Status
 
-- ✅ **Samsung Network Control**: Complete and tested
-- ✅ **TV Discovery & Auto-Configuration**: Complete
-- ✅ **Power State Detection**: Complete with Samsung PowerState API
-- ✅ **Development Framework**: Complete with dry-run and verbose modes
-- ⏳ **Sensor Integration**: Ready for physical sensor connection
-- 🔄 **Service Deployment**: Planned next phase
+✅ **Completed & Working:**
+- **Presence Detection**: UART sensor communication fully functional
+- **Sensor Framework**: Both UART and GPIO trigger modes implemented
+- **Configuration System**: Complete JSON-based configuration
+- **Development Tools**: Debug utilities, dry-run modes, verbose logging
+- **Hardware Integration**: Raspberry Pi CM5 + DFRobot SENS0395 working
 
-See `status.md` for detailed development progress and technical decisions.
+⚠️ **Problematic (Documented):**
+- **Samsung TV Control**: Intermittent WebSocket API failures
+- **Smart Plug Control**: All attempted methods failed (see `archive_failed_attempts/`)
+
+🔄 **Next Phase Options:**
+- Investigate reliable hardware control methods (IR, relay)
+- Implement IFTTT webhooks as cloud-based alternative
+- Focus on presence detection applications beyond TV control
+
+See `status.md` for detailed development progress, failed attempts, and technical decisions.
 
 ## License
 

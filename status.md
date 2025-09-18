@@ -1,7 +1,97 @@
 # Project Status: Presence Detection System
 
-## Current Phase: Samsung Network Control Implementation ✅ COMPLETED
-**Last Updated:** 2025-08-28
+## 🚨 CRITICAL: All TV Control Methods Failed
+**Last Updated:** 2025-09-18
+**Status:** 🔴 CRITICAL - Need new approach after multiple control method failures
+
+### Failed Control Methods Summary:
+
+#### 1. Samsung Direct Network Control ❌ FAILED
+**Issues:**
+- Samsung WebSocket API fails intermittently from presence sensor
+- TV gets stuck in standby mode with "WebSocket power toggle failed after 3 attempts"
+- Connection reuse issues causing stale WebSocket connections
+- Wake-on-LAN unreliable from standby mode
+- Complex state management with poor reliability
+
+#### 2. Samsung CEC Control ❌ FAILED  
+**Issues:**
+- CEC power-on has 25-second cooldown after power-off
+- CEC power-off does not work reliably
+- No reliable power state feedback mechanism
+- Hardware complexity with limited functionality
+
+#### 3. Direct Tapo PyP100 Control ❌ FAILED
+**Issues:**
+- PyP100 connection failed despite correct credentials
+- Authentication errors with TP-Link cloud services
+- Inconsistent API behavior with newer firmware
+
+#### 4. Amazon Alexa AlexaPy Control ❌ FAILED
+**Issues:**
+- AlexaPy login fails due to Amazon security measures
+- Requires 2FA/captcha handling not supported by library
+- Amazon actively blocks unofficial API access
+- Unofficial library with no guarantee of continued functionality
+
+### Root Cause Analysis:
+All attempted control methods rely on unofficial APIs, proprietary protocols, or cloud services that are either unreliable or actively restricted by vendors.
+
+---
+
+## 📋 FAILED ATTEMPTS DOCUMENTATION
+
+### ❌ Alexa AlexaPy Integration (ABANDONED)
+**Status:** FAILED - AlexaPy cannot authenticate with Amazon
+**Date:** 2025-09-18
+
+#### What Was Attempted:
+- [x] Installed AlexaPy library v1.29.8
+- [x] Created alexa_tv_control.py module with async/sync interfaces
+- [x] Updated config.json with Amazon credentials
+- [x] Integrated with presence_sensor.py
+- [x] Created test scripts
+
+#### Failure Points:
+- Amazon login fails due to security measures (2FA/captcha)
+- AlexaPy is unofficial and Amazon actively blocks such access
+- No reliable way to bypass Amazon's authentication requirements
+- Library may break at any time due to Amazon changes
+
+#### Lessons Learned:
+- Unofficial APIs for major cloud services are unreliable
+- Amazon has strong anti-automation measures
+- Voice control works manually but programmatic access is blocked
+
+---
+
+## 🧹 CODEBASE CLEANUP NEEDED
+
+### Files to Archive/Remove:
+- `alexa_tv_control.py` - Failed Alexa integration
+- `test_alexa_control.py` - Failed test script
+- AlexaPy dependency in requirements
+- Alexa config section in config.json
+
+### Failed Code Artifacts:
+- Samsung WebSocket reconnection logic
+- CEC control implementation 
+- Tapo PyP100 integration attempts
+- AlexaPy authentication code
+
+### What to Keep:
+- Core presence detection (UART sensor working)
+- Configuration framework
+- Logging infrastructure
+- Basic TV control interface structure
+
+---
+
+## Previous Phases (For Reference)
+
+### ~~Samsung Network Control Implementation~~ ❌ DEPRECATED
+**Status:** 🔴 FAILED - Unreliable in production
+**Reason:** WebSocket API intermittent failures, connection management issues
 
 ---
 

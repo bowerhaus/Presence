@@ -192,7 +192,7 @@ class PresenceSensor:
         sys.exit(1)
     
     def _setup_tv_controller(self):
-        """Initialize TV controller"""
+        """Initialize Samsung TV controller"""
         try:
             self.tv_controller = SamsungTVController()
             self.logger.info("Samsung TV controller initialized")

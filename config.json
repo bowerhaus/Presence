@@ -14,6 +14,7 @@
     }
   },
   "tv_control": {
+    "type": "samsung",
     "turn_off_delay": 10,
     "turn_on_delay": 0,
     "retry_attempts": 3,
