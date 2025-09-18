@@ -20,6 +20,13 @@
     "retry_attempts": 3,
     "retry_delay": 2
   },
+  "ir_control": {
+    "enabled": true,
+    "tx_pin": 17,
+    "rx_pin": 22,
+    "protocol": "samsung",
+    "carrier_freq": 38000
+  },
   "samsung_tv": {
     "enabled": true,
     "ip_address": "192.168.0.171",
