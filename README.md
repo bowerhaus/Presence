@@ -19,10 +19,10 @@ The presence detection system is **fully functional** but TV control remains **u
 - **Power State Management**: Connection reuse issues cause stale connections
 
 ❌ **Failed Control Methods (See `archive_failed_attempts/`):**
-- **IR Hardware Control**: ADA5990 IR transceiver hardware failure (IR diode not emitting)
 - Direct Tapo PyP100 smart plug control (authentication failures)
 - Amazon Alexa AlexaPy integration (2FA/security blocking)
 - Kasa smart plug protocol (device incompatibility)
+- IR hardware control attempts (removed from codebase)
 
 ## Hardware Requirements
 
@@ -36,9 +36,8 @@ The presence detection system is **fully functional** but TV control remains **u
 - **TP-Link Tapo Smart Plug** (manual Alexa control works, API control failed)
 
 ### Eliminated Hardware ❌
-- ~~Adafruit ADA5990 IR transceiver~~ - Hardware failure, IR diode not emitting
-- ~~Adafruit IR blaster~~ - Complex setup, limited reliability
-- ~~HDMI CEC connection~~ - 25-second cooldowns, poor power-off support
+- ~~IR hardware control~~ - All IR-related code removed from project
+- ~~HDMI CEC connection~~ - CEC-related code removed from project
 
 ## Quick Start
 
@@ -70,8 +69,8 @@ python3 discover_samsung_tv.py
 
 # Test power control (may fail intermittently)
 python3 samsung_tv_control.py status    # Check current TV state
-python3 samsung_tv_control.py on        # Turn TV on
-python3 samsung_tv_control.py off       # Turn TV off
+python3 power_on.py                      # Turn TV on
+python3 power_off.py                     # Turn TV off
 ```
 
 ### 4. Current Functional Test
@@ -109,10 +108,6 @@ The system uses `config.json` for all settings. Key sections:
       "port": "/dev/ttyAMA1",          // UART port for CM5
       "baudrate": 115200,              // Communication speed
       "timeout": 1.0                   // Read timeout
-    },
-    "trigger": {
-      "gpio_pin": 14,                  // GPIO pin (backup mode)
-      "debounce_time": 2.0             // Sensor debounce seconds
     }
   }
 }
@@ -150,18 +145,12 @@ The system uses `config.json` for all settings. Key sections:
 source venv/bin/activate
 
 # Direct TV control
-python3 samsung_tv_control.py on           # Turn TV on (smart method selection)
-python3 samsung_tv_control.py off          # Turn TV off (to standby)
-python3 samsung_tv_control.py toggle       # Smart toggle based on current state
-python3 samsung_tv_control.py status       # Show current power state
-python3 samsung_tv_control.py info         # Show TV information
-
-# Context-aware control (recommended for automation)
-python3 samsung_tv_control.py ensure-on    # Ensure TV is on
-python3 samsung_tv_control.py ensure-off   # Ensure TV is off
+python3 power_on.py                         # Turn TV on
+python3 power_off.py                        # Turn TV off
+python3 samsung_tv_control.py status        # Show current power state
 
 # Discovery and configuration
-python3 discover_samsung_tv.py             # Find and configure Samsung TVs
+python3 discover_samsung_tv.py              # Find and configure Samsung TVs
 ```
 
 ### Presence Detection Commands
@@ -223,19 +212,25 @@ The system uses Samsung's WebSocket API for reliable TV control over the network
 ## Project Structure
 
 ```
+# Core Components
 presence_sensor.py          # Main application with Samsung network integration
-samsung_tv_control.py       # Samsung TV network control module  
+uart_sensor.py              # UART sensor interface for DFRobot SENS0395
+samsung_tv_control.py       # Samsung TV network control module
 discover_samsung_tv.py      # TV discovery and auto-configuration
-config.json                 # System configuration (GPIO, network, timing)
+config.json                 # System configuration (sensor, TV, timing)
+
+# Control Scripts
+power_on.py                 # Manual TV power on script
+power_off.py                # Manual TV power off script
+
+# Development Tools
+debug_sensor_strings.py     # UART sensor debugging utility
+configure_sensor.py         # Sensor range configuration tool
+check_sensor_config.py      # Sensor settings verification
+
+# Environment
 venv/                       # Python virtual environment with dependencies
-├── lib/python3.11/site-packages/
-│   └── samsungtvws/        # Samsung TV WebSocket library
-lib/                        # Future modular components (planned)
-├── sensor.py              # Sensor abstraction (planned)
-└── state_machine.py       # State management (planned)
-tests/                     # Test suite (planned)
-scripts/                   # Installation automation (planned)
-└── install.sh            # Service installation (planned)
+archive_failed_attempts/    # Failed control methods (reference only)
 ```
 
 ## Installation as Service (Production)
@@ -323,11 +318,10 @@ pip install samsungtvws[async,encrypted]
 
 ⚠️ **Problematic (Documented):**
 - **Samsung TV Control**: Intermittent WebSocket API failures
-- **IR Hardware Control**: ADA5990 hardware failure (IR diode not emitting)
 - **Smart Plug Control**: All attempted methods failed (see `archive_failed_attempts/`)
 
 🔄 **Next Phase Options:**
-- Investigate reliable hardware control methods (IR, relay)
+- Investigate reliable hardware control methods (relay switching)
 - Implement IFTTT webhooks as cloud-based alternative
 - Focus on presence detection applications beyond TV control
 

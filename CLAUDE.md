@@ -47,7 +47,8 @@ python3 debug_sensor_strings.py --port /dev/ttyAMA1 --duration 30
 # Test TV control (UNRELIABLE)
 python3 discover_samsung_tv.py                    # TV discovery
 python3 samsung_tv_control.py status              # Check TV state (may fail)
-python3 samsung_tv_control.py on/off              # Control TV (may fail)
+python3 power_on.py                                # Turn TV on (may fail)
+python3 power_off.py                               # Turn TV off (may fail)
 
 # Configure sensor settings
 python3 configure_sensor.py                       # Set detection range to 2m
@@ -66,15 +67,16 @@ presence_sensor.py           # Main application (presence detection working, TV 
 uart_sensor.py              # UART sensor interface (WORKING)
 samsung_tv_control.py        # Samsung TV control (UNRELIABLE)
 discover_samsung_tv.py       # TV discovery utility
-config.json                  # System configuration
+config.json                  # System configuration (cleaned)
+
+# Control scripts
+power_on.py                  # Manual TV power on script
+power_off.py                 # Manual TV power off script
 
 # Debug and development tools
 debug_sensor_strings.py      # UART sensor debugging (WORKING)
 configure_sensor.py          # Sensor range configuration
 check_sensor_config.py       # Sensor settings verification
-debug_gpio_serial.py         # GPIO/serial debugging utilities
-debug_simple_serial.py       # Basic serial testing
-debug_software_serial.py     # Software serial testing
 
 # Environment and dependencies
 venv/                        # Python virtual environment (clean)
@@ -92,11 +94,13 @@ archive_failed_attempts/     # All failed control methods
 ## Configuration
 
 The system uses a JSON configuration file (`config.json`) with the following structure:
-- `sensor`: UART and GPIO settings (UART mode working on `/dev/ttyAMA1`)
+- `sensor`: UART settings (UART mode working on `/dev/ttyAMA1`)
 - `tv_control`: Timing parameters and control type
 - `samsung_tv`: Network TV control settings (UNRELIABLE)
 - `logging`: Log levels and file paths
 - `dev_mode`: Development mode settings
+
+**Removed sections:** `ir_control`, `cec`, and `sensor.trigger` (GPIO pin config) are no longer needed.
 
 ## Important Implementation Notes
 
@@ -113,6 +117,7 @@ The system uses a JSON configuration file (`config.json`) with the following str
 - All code in `archive_failed_attempts/` has been proven to fail
 - Direct smart plug control via PyP100, AlexaPy, Kasa all failed
 - Samsung WebSocket API is unreliable for automation use
+- IR and CEC control methods have been removed from codebase
 
 ✅ **RELIABLE COMPONENTS TO BUILD ON**
 - UART sensor communication is rock-solid
@@ -151,7 +156,6 @@ The Samsung TV WebSocket API was designed for occasional manual control, not aut
 ## Next Development Options
 
 ### Option 1: Hardware Control (Recommended)
-- **IR Transmitter**: Direct infrared control with learned codes
 - **Relay Module**: Hardware power switching via smart plug relay
 - **GPIO Control**: Direct GPIO relay control for 100% reliability
 

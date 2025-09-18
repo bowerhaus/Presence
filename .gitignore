@@ -39,3 +39,4 @@ dist/
 # Runtime
 *.pid
 .state/
+temp_config.json

@@ -6,11 +6,6 @@
       "port": "/dev/ttyAMA1",
       "baudrate": 115200,
       "timeout": 1.0
-    },
-    "trigger": {
-      "gpio_pin": 14,
-      "debounce_time": 2.0,
-      "inverted_logic": false
     }
   },
   "tv_control": {
@@ -20,13 +15,6 @@
     "retry_attempts": 3,
     "retry_delay": 2
   },
-  "ir_control": {
-    "enabled": true,
-    "tx_pin": 17,
-    "rx_pin": 22,
-    "protocol": "samsung",
-    "carrier_freq": 38000
-  },
   "samsung_tv": {
     "enabled": true,
     "ip_address": "192.168.0.171",
@@ -35,13 +23,6 @@
     "mac_address": "28:af:42:46:a8:0e",
     "connection_timeout": 10,
     "wake_on_lan": true
-  },
-  "cec": {
-    "enabled": false,
-    "device_address": "0.0.0.0",
-    "tv_address": "0",
-    "power_on_only": true,
-    "cooldown_period": 25
   },
   "logging": {
     "level": "INFO",
