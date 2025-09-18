@@ -73,7 +73,17 @@ python3 power_on.py                      # Turn TV on
 python3 power_off.py                     # Turn TV off
 ```
 
-### 4. Current Functional Test
+### 4. Production Setup (Recommended)
+```bash
+# Install and start as a system service
+./service_manager.sh install    # One-time setup
+./service_manager.sh start      # Start the service
+./service_manager.sh logs       # Monitor activity
+
+# This runs the presence detection automatically in the background
+```
+
+### 5. Development Testing
 ```bash
 # Test the working presence detection system
 python3 presence_sensor.py --dev --dry-run --verbose
@@ -139,7 +149,20 @@ The system uses `config.json` for all settings. Key sections:
 
 ## Available Commands
 
-### TV Control Commands
+### Service Management (Recommended)
+```bash
+# Service management script (no venv activation needed)
+./service_manager.sh install    # Install systemd service (one-time setup)
+./service_manager.sh start      # Start presence detection service
+./service_manager.sh stop       # Stop the service
+./service_manager.sh restart    # Restart the service
+./service_manager.sh status     # Check service status
+./service_manager.sh logs       # View live service logs
+./service_manager.sh kill       # Emergency stop and disable
+./service_manager.sh uninstall  # Remove service completely
+```
+
+### Manual TV Control Commands
 ```bash
 # Always activate virtual environment first
 source venv/bin/activate
@@ -147,7 +170,6 @@ source venv/bin/activate
 # Direct TV control
 python3 power_on.py                         # Turn TV on
 python3 power_off.py                        # Turn TV off
-python3 samsung_tv_control.py status        # Show current power state
 
 # Discovery and configuration
 python3 discover_samsung_tv.py              # Find and configure Samsung TVs
@@ -215,9 +237,13 @@ The system uses Samsung's WebSocket API for reliable TV control over the network
 # Core Components
 presence_sensor.py          # Main application with Samsung network integration
 uart_sensor.py              # UART sensor interface for DFRobot SENS0395
-samsung_tv_control.py       # Samsung TV network control module
+enhanced_samsung_controller.py  # Enhanced Samsung TV network control module
 discover_samsung_tv.py      # TV discovery and auto-configuration
 config.json                 # System configuration (sensor, TV, timing)
+
+# Service Management
+service_manager.sh          # Systemd service management script
+                           # (install, start, stop, restart, status, logs, kill)
 
 # Control Scripts
 power_on.py                 # Manual TV power on script
@@ -235,42 +261,66 @@ archive_failed_attempts/    # Failed control methods (reference only)
 
 ## Installation as Service (Production)
 
-### Manual Service Setup
+### Recommended: Automated Service Setup
 ```bash
-# Create service file
-sudo tee /etc/systemd/system/presence-sensor.service << EOF
-[Unit]
-Description=Presence Detection TV Control
-After=network.target
+# Use the service manager script (easiest method)
+./service_manager.sh install    # Install and enable the service
+./service_manager.sh start      # Start the service
+./service_manager.sh status     # Verify it's running
 
-[Service]
-Type=simple
-User=pi
-WorkingDirectory=/home/pi/presence-detection
-Environment=PATH=/home/pi/presence-detection/venv/bin
-ExecStart=/home/pi/presence-detection/venv/bin/python presence_sensor.py
-Restart=always
-RestartSec=10
+# Monitor the service
+./service_manager.sh logs       # View live logs
+```
 
-[Install]
-WantedBy=multi-user.target
-EOF
+### Service Management
+```bash
+# Daily operations
+./service_manager.sh status     # Check if running
+./service_manager.sh restart    # Restart after config changes
+./service_manager.sh stop       # Temporarily stop
+./service_manager.sh start      # Start again
 
-# Enable and start service
-sudo systemctl enable presence-sensor
-sudo systemctl start presence-sensor
+# Troubleshooting
+./service_manager.sh logs       # See what's happening
+./service_manager.sh kill       # Emergency stop
+./service_manager.sh uninstall  # Remove completely
+```
 
-# Check status
-sudo systemctl status presence-sensor
-journalctl -u presence-sensor -f
+### Manual Service Setup (Advanced)
+If you prefer manual systemd commands:
+```bash
+# The service manager script creates this service file:
+# /etc/systemd/system/presence-sensor.service
+
+# Manual systemd commands
+sudo systemctl status presence-sensor    # Check status
+sudo systemctl restart presence-sensor   # Restart
+journalctl -u presence-sensor -f         # View logs
 ```
 
 ## Troubleshooting
 
+### Service Issues
+```bash
+# Check service status
+./service_manager.sh status
+
+# View detailed logs
+./service_manager.sh logs
+
+# Restart if having issues
+./service_manager.sh restart
+
+# Emergency stop
+./service_manager.sh kill
+```
+
 ### TV Control Issues
 ```bash
-# Test network connectivity to TV
-python3 samsung_tv_control.py status --debug
+# Test TV connectivity manually
+source venv/bin/activate
+python3 power_on.py     # Test TV power on
+python3 power_off.py    # Test TV power off
 
 # Check TV network settings
 python3 discover_samsung_tv.py
