@@ -15,7 +15,7 @@
   },
   "tv_control": {
     "type": "samsung",
-    "turn_off_delay": 10,
+    "turn_off_delay": 20,
     "turn_on_delay": 0,
     "retry_attempts": 3,
     "retry_delay": 2
@@ -37,7 +37,7 @@
     "wake_on_lan": true
   },
   "cec": {
-    "enabled": true,
+    "enabled": false,
     "device_address": "0.0.0.0",
     "tv_address": "0",
     "power_on_only": true,

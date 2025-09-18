@@ -19,6 +19,7 @@ The presence detection system is **fully functional** but TV control remains **u
 - **Power State Management**: Connection reuse issues cause stale connections
 
 ❌ **Failed Control Methods (See `archive_failed_attempts/`):**
+- **IR Hardware Control**: ADA5990 IR transceiver hardware failure (IR diode not emitting)
 - Direct Tapo PyP100 smart plug control (authentication failures)
 - Amazon Alexa AlexaPy integration (2FA/security blocking)
 - Kasa smart plug protocol (device incompatibility)
@@ -35,6 +36,7 @@ The presence detection system is **fully functional** but TV control remains **u
 - **TP-Link Tapo Smart Plug** (manual Alexa control works, API control failed)
 
 ### Eliminated Hardware ❌
+- ~~Adafruit ADA5990 IR transceiver~~ - Hardware failure, IR diode not emitting
 - ~~Adafruit IR blaster~~ - Complex setup, limited reliability
 - ~~HDMI CEC connection~~ - 25-second cooldowns, poor power-off support
 
@@ -321,6 +323,7 @@ pip install samsungtvws[async,encrypted]
 
 ⚠️ **Problematic (Documented):**
 - **Samsung TV Control**: Intermittent WebSocket API failures
+- **IR Hardware Control**: ADA5990 hardware failure (IR diode not emitting)
 - **Smart Plug Control**: All attempted methods failed (see `archive_failed_attempts/`)
 
 🔄 **Next Phase Options:**

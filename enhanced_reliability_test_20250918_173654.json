@@ -1,0 +1,168 @@
+{
+  "test_info": {
+    "timestamp": "2025-09-18T17:36:54.376359",
+    "total_cycles": 3,
+    "controller_type": "enhanced",
+    "config_path": "config.json"
+  },
+  "results": [
+    {
+      "cycle": 1,
+      "timestamp": "2025-09-18T17:35:55.260753",
+      "steps": [
+        {
+          "action": "get_initial_state",
+          "success": true,
+          "duration": 0.1446843147277832,
+          "result": false,
+          "error": null
+        },
+        {
+          "action": "verify_off",
+          "success": true,
+          "duration": 0.14130020141601562,
+          "result": false,
+          "error": null
+        },
+        {
+          "action": "power_on",
+          "success": true,
+          "duration": 5.735284090042114,
+          "result": true,
+          "error": null
+        },
+        {
+          "action": "verify_on",
+          "success": true,
+          "duration": 0.14279913902282715,
+          "result": true,
+          "error": null
+        }
+      ],
+      "connection_stats": {
+        "total_attempts": 7,
+        "successful_connections": 7,
+        "success_rate": 100.0,
+        "ssl_errors": 0,
+        "timeout_errors": 0,
+        "consecutive_failures": 0,
+        "is_degraded": false,
+        "last_success": "2025-09-18T17:36:07.355349",
+        "last_failure": null
+      },
+      "cycle_success": true,
+      "successful_steps": 4,
+      "total_steps": 4
+    },
+    {
+      "cycle": 2,
+      "timestamp": "2025-09-18T17:36:12.425293",
+      "steps": [
+        {
+          "action": "get_initial_state",
+          "success": true,
+          "duration": 0.16832876205444336,
+          "result": true,
+          "error": null
+        },
+        {
+          "action": "power_off",
+          "success": true,
+          "duration": 7.511430740356445,
+          "result": true,
+          "error": null
+        },
+        {
+          "action": "verify_off",
+          "success": true,
+          "duration": 0.1420741081237793,
+          "result": false,
+          "error": null
+        },
+        {
+          "action": "power_on",
+          "success": true,
+          "duration": 4.505936622619629,
+          "result": true,
+          "error": null
+        },
+        {
+          "action": "verify_on",
+          "success": true,
+          "duration": 0.13525652885437012,
+          "result": true,
+          "error": null
+        }
+      ],
+      "connection_stats": {
+        "total_attempts": 18,
+        "successful_connections": 18,
+        "success_rate": 100.0,
+        "ssl_errors": 0,
+        "timeout_errors": 0,
+        "consecutive_failures": 0,
+        "is_degraded": false,
+        "last_success": "2025-09-18T17:36:30.820935",
+        "last_failure": null
+      },
+      "cycle_success": true,
+      "successful_steps": 5,
+      "total_steps": 5
+    },
+    {
+      "cycle": 3,
+      "timestamp": "2025-09-18T17:36:35.888832",
+      "steps": [
+        {
+          "action": "get_initial_state",
+          "success": true,
+          "duration": 0.15934324264526367,
+          "result": true,
+          "error": null
+        },
+        {
+          "action": "power_off",
+          "success": true,
+          "duration": 7.522611141204834,
+          "result": true,
+          "error": null
+        },
+        {
+          "action": "verify_off",
+          "success": true,
+          "duration": 0.14246320724487305,
+          "result": false,
+          "error": null
+        },
+        {
+          "action": "power_on",
+          "success": true,
+          "duration": 4.509434938430786,
+          "result": true,
+          "error": null
+        },
+        {
+          "action": "verify_on",
+          "success": true,
+          "duration": 0.15198969841003418,
+          "result": true,
+          "error": null
+        }
+      ],
+      "connection_stats": {
+        "total_attempts": 29,
+        "successful_connections": 29,
+        "success_rate": 100.0,
+        "ssl_errors": 0,
+        "timeout_errors": 0,
+        "consecutive_failures": 0,
+        "is_degraded": false,
+        "last_success": "2025-09-18T17:36:54.296918",
+        "last_failure": null
+      },
+      "cycle_success": true,
+      "successful_steps": 5,
+      "total_steps": 5
+    }
+  ]
+}

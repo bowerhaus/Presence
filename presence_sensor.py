@@ -20,7 +20,7 @@ try:
 except ImportError:
     lgpio = None
 
-from samsung_tv_control import SamsungTVController
+from enhanced_samsung_controller import EnhancedSamsungTVController
 from uart_sensor import UARTSensor
 
 
@@ -73,20 +73,19 @@ class PresenceSensor:
         """Setup logging configuration"""
         log_config = self.config.get("logging", {})
         log_level = getattr(logging, log_config.get("level", "INFO").upper())
-        
-        # Configure root logger to ensure all modules get the same config
-        logging.basicConfig(
-            level=log_level,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        
+
+        # Get logger and clear any existing handlers to prevent duplicates
         logger = logging.getLogger(__name__)
+        logger.handlers.clear()
         logger.setLevel(log_level)
-        
+
+        # Set root logger level but don't use basicConfig (prevents duplicate handlers)
+        logging.getLogger().setLevel(log_level)
+
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
-        
+
         if self.config.get("dev_mode", {}).get("log_to_console", True):
             console_handler = logging.StreamHandler()
             console_handler.setFormatter(formatter)
@@ -97,8 +96,8 @@ class PresenceSensor:
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
         
-        # Also configure samsung_tv_control logger
-        tv_logger = logging.getLogger('samsung_tv_control')
+        # Also configure enhanced samsung controller logger
+        tv_logger = logging.getLogger('enhanced_samsung_controller')
         tv_logger.setLevel(log_level)
         
         return logger
@@ -192,10 +191,10 @@ class PresenceSensor:
         sys.exit(1)
     
     def _setup_tv_controller(self):
-        """Initialize Samsung TV controller"""
+        """Initialize Enhanced Samsung TV controller"""
         try:
-            self.tv_controller = SamsungTVController()
-            self.logger.info("Samsung TV controller initialized")
+            self.tv_controller = EnhancedSamsungTVController()
+            self.logger.info("Enhanced Samsung TV controller initialized")
         except Exception as e:
             self.logger.error(f"TV controller setup failed: {e}")
             sys.exit(1)

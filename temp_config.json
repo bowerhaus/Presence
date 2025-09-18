@@ -14,10 +14,18 @@
     }
   },
   "tv_control": {
-    "turn_off_delay": 10,
+    "type": "samsung",
+    "turn_off_delay": 20,
     "turn_on_delay": 0,
     "retry_attempts": 3,
     "retry_delay": 2
+  },
+  "ir_control": {
+    "enabled": true,
+    "tx_pin": 17,
+    "rx_pin": 22,
+    "protocol": "samsung",
+    "carrier_freq": 38000
   },
   "samsung_tv": {
     "enabled": true,
@@ -29,7 +37,7 @@
     "wake_on_lan": true
   },
   "cec": {
-    "enabled": true,
+    "enabled": false,
     "device_address": "0.0.0.0",
     "tv_address": "0",
     "power_on_only": true,

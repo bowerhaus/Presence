@@ -6,7 +6,14 @@
 
 ### Failed Control Methods Summary:
 
-#### 1. Samsung Direct Network Control ❌ FAILED
+#### 1. IR Hardware Control ❌ FAILED (2025-09-18)
+**Issues:**
+- ADA5990 IR transceiver hardware failure - IR diode not emitting
+- iPhone camera test confirms no infrared light output
+- Yellow status LED working but IR transmission failed
+- Hardware defect prevents any IR control regardless of software implementation
+
+#### 2. Samsung Direct Network Control ❌ FAILED
 **Issues:**
 - Samsung WebSocket API fails intermittently from presence sensor
 - TV gets stuck in standby mode with "WebSocket power toggle failed after 3 attempts"
@@ -283,10 +290,45 @@ PRESENCE LOST → Scheduling TV off in 600 seconds
 
 ---
 
-## 🔄 CURRENT ACTION PLAN (2025-09-17)
-**Status:** 🟡 IN PROGRESS  
+## 🔄 IR CONTROL ATTEMPT RESULTS (2025-09-18)
+**Status:** 🔴 FAILED - IR control unsuccessful despite hardware setup
 **Platform:** Raspberry Pi Compute Module 5 (CM5)
-**Last Updated:** 2025-09-17
+**Last Updated:** 2025-09-18
+
+### ADA5990 IR Control Attempt - FAILED ❌
+**Hardware Setup:** ✅ WORKING
+- **Board:** Adafruit ADA5990 IR Transceiver properly powered (yellow/green LEDs on)
+- **Wiring:** Correct connections to GPIO 17 (TX), GPIO 22 (RX)
+- **Power:** 5V and GND properly connected
+- **Transmitter:** Yellow 'IN' LED blinks during transmission (confirmed working)
+
+**Software Implementation:** ✅ COMPLETED
+- Custom lgpio-based IR transmitter for CM5 compatibility (pigpio incompatible)
+- Samsung protocol timing implemented (4.5ms/4.5ms header, 560μs marks)
+- Multiple IR code formats tested (Samsung, NEC, raw patterns)
+- 38kHz carrier frequency generation
+
+**Testing Results:** ❌ NO TV RESPONSE
+- **Transmitter Test:** Yellow LED blinks correctly during IR transmission
+- **iPhone Camera Test:** ❌ NO IR LIGHT VISIBLE - IR diode not emitting
+- **Hardware Failure:** ADA5990 signal processing works but IR diode failed
+- **TV Response:** Samsung Frame TV does not respond to any IR codes tested
+- **Codes Tested:** 0xE0E040BF, 0xE0E09966, 0xE0E019E6, 0x0707F40B, 0xFF629D
+- **Network Verification:** No TV state changes detected via Samsung API
+
+**Receiver Issues:** ❌ NOT WORKING
+- IR receiver stuck at LOW (0) state
+- Does not detect Samsung remote signals
+- May be faulty or require different wiring/setup
+
+**Root Cause Analysis:**
+The ADA5990 IR transceiver board has a hardware failure - the IR diode is not emitting infrared light despite proper signal processing. The yellow status LED confirms signal reception from GPIO 17, but iPhone camera test reveals no IR emission. This indicates either a failed IR LED, insufficient power delivery to the IR diode, or internal board circuitry failure. The software implementation and protocol timing are irrelevant if no IR light is being transmitted.
+
+---
+
+## 🔄 PREVIOUS NETWORK CONTROL ATTEMPTS (2025-09-17)
+**Status:** 🔴 FAILED - Multiple control methods unsuccessful
+**Platform:** Raspberry Pi Compute Module 5 (CM5)
 
 ---
 
@@ -295,9 +337,34 @@ Create a reliable presence detection system using DFRobot SENS0395 mmWave sensor
 
 ---
 
-## 📋 IMPLEMENTATION PLAN & PROGRESS
+## 📋 IR CONTROL IMPLEMENTATION PLAN & PROGRESS
 
-### Phase 1: Resolve Sensor Communication ✅ COMPLETED (2025-09-17)
+### Phase 1: ADA5990 IR Control Setup ❌ FAILED (2025-09-18)
+**Objective:** Replace unreliable network control with hardware IR control
+
+#### Tasks Completed:
+- [x] **Install PiIR Library and Dependencies**
+  - [x] Install PiIR in virtual environment
+  - [x] Discovered pigpio daemon incompatible with CM5
+  - [x] Created custom lgpio-based solution instead
+
+- [x] **Create IR Control Module**
+  - [x] Created `ir_tv_control.py` with Samsung protocol support
+  - [x] Implemented discrete power on/off functions
+  - [x] Added Samsung IR codes database
+  - [x] Created multiple test scripts and protocols
+
+- [x] **Hardware Setup and Testing**
+  - [x] Connected ADA5990 to GPIO 17 (TX) and GPIO 22 (RX)
+  - [x] Updated GPIO_PINOUT.md with new pin assignments
+  - [x] Confirmed IR transmission (yellow LED blinks)
+  - [x] **FAILED:** Samsung Frame TV does not respond to any IR codes
+
+- [ ] **System Integration** - ABANDONED
+  - [ ] IR control non-functional, reverting to network API
+  - [ ] Will use network control despite reliability issues
+
+### Phase 2: Previous Sensor Communication ✅ COMPLETED (2025-09-17)
 **Objective:** Get reliable data from DFRobot SENS0395 sensor
 
 #### Tasks:
