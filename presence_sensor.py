@@ -24,6 +24,55 @@ from enhanced_samsung_controller import EnhancedSamsungTVController
 from uart_sensor import UARTSensor
 
 
+class LEDController:
+    """Simple LED controller using lgpio"""
+
+    def __init__(self, pin: int):
+        self.pin = pin
+        self.gpio_handle = None
+        self.state = False
+        self._setup_gpio()
+
+    def _setup_gpio(self):
+        """Initialize GPIO for LED control"""
+        if lgpio is not None:
+            try:
+                self.gpio_handle = lgpio.gpiochip_open(0)
+                lgpio.gpio_claim_output(self.gpio_handle, self.pin)
+                lgpio.gpio_write(self.gpio_handle, self.pin, 0)  # Start with LED off
+            except Exception as e:
+                print(f"Failed to setup LED GPIO: {e}")
+                self.gpio_handle = None
+
+    def on(self):
+        """Turn LED on"""
+        if self.gpio_handle is not None:
+            try:
+                lgpio.gpio_write(self.gpio_handle, self.pin, 1)
+                self.state = True
+            except Exception as e:
+                print(f"Failed to turn LED on: {e}")
+
+    def off(self):
+        """Turn LED off"""
+        if self.gpio_handle is not None:
+            try:
+                lgpio.gpio_write(self.gpio_handle, self.pin, 0)
+                self.state = False
+            except Exception as e:
+                print(f"Failed to turn LED off: {e}")
+
+    def cleanup(self):
+        """Cleanup GPIO resources"""
+        if self.gpio_handle is not None:
+            try:
+                lgpio.gpio_write(self.gpio_handle, self.pin, 0)  # Turn off LED
+                lgpio.gpio_free(self.gpio_handle, self.pin)
+                lgpio.gpiochip_close(self.gpio_handle)
+            except:
+                pass
+
+
 class PresenceSensor:
     """Human presence detection system for Samsung TV control"""
     
@@ -46,6 +95,9 @@ class PresenceSensor:
         self.uart_sensor = None
         self.gpio_handle = None
         self.use_lgpio = False
+
+        # LED control
+        self.led_controller = LEDController(5)
         
         self.dev_mode = self.config.get("dev_mode", {})
         self.dry_run = self.dev_mode.get("dry_run", False)
@@ -171,6 +223,7 @@ class PresenceSensor:
             self.presence_detected = True
             self.last_presence_time = datetime.now()
             self.logger.info("PRESENCE DETECTED")
+            self.led_controller.on()
             self._cancel_tv_off()
             self._turn_tv_on()
     
@@ -180,6 +233,7 @@ class PresenceSensor:
             self.presence_detected = False
             self.last_presence_lost_time = datetime.now()
             self.logger.info("PRESENCE LOST")
+            self.led_controller.off()
             self._schedule_tv_off()
     
     def _setup_gpio(self):
@@ -359,30 +413,32 @@ class PresenceSensor:
     def _on_presence_detected(self):
         """Handle presence detection"""
         now = datetime.now()
-        
-        if (self.last_presence_time is None or 
+
+        if (self.last_presence_time is None or
             (now - self.last_presence_time).total_seconds() > self.debounce_time):
-            
+
             if not self.presence_detected:
                 self.logger.info("PRESENCE DETECTED")
                 self.presence_detected = True
+                self.led_controller.on()
                 self._cancel_tv_off()
                 self._turn_tv_on()
-            
+
             self.last_presence_time = now
     
     def _on_presence_lost(self):
         """Handle loss of presence"""
         now = datetime.now()
-        
-        if (self.last_presence_lost_time is None or 
+
+        if (self.last_presence_lost_time is None or
             (now - self.last_presence_lost_time).total_seconds() > self.debounce_time):
-            
+
             if self.presence_detected:
                 self.logger.info("PRESENCE LOST")
                 self.presence_detected = False
+                self.led_controller.off()
                 self._schedule_tv_off()
-            
+
             self.last_presence_lost_time = now
     
     def _monitor_loop(self):
@@ -447,10 +503,14 @@ class PresenceSensor:
         """Stop the presence detection system"""
         self.logger.info("Stopping presence sensor system...")
         self.running = False
-        
+
         if self.turn_off_timer:
             self.turn_off_timer.cancel()
-        
+
+        # Cleanup LED controller
+        if self.led_controller:
+            self.led_controller.cleanup()
+
         # Cleanup sensor resources
         if self.sensor_mode == "uart":
             if self.uart_sensor:
@@ -463,13 +523,13 @@ class PresenceSensor:
                     lgpio.gpiochip_close(self.gpio_handle)
                 except:
                     pass
-            
+
             if GPIO is not None and not self.use_lgpio:
                 try:
                     GPIO.cleanup()
                 except:
                     pass
-        
+
         self.logger.info("System stopped")
     
     def _signal_handler(self, signum, frame):
