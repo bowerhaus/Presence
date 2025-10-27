@@ -224,6 +224,8 @@ class UARTSensor:
                 presence_value = parts[1].strip()
                 new_presence = (presence_value == '1')
 
+                self.logger.debug(f"Raw sensor: '{line}' -> presence_value='{presence_value}' -> new_presence={new_presence}")
+
                 # Update timestamp
                 self.last_update = datetime.now()
 

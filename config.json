@@ -11,8 +11,9 @@
       "min": 0.75,
       "max": 3,
       "apply_on_startup": true,
-      "last_applied": "2025-10-27T19:55:15.939975"
-    }
+      "last_applied": "2025-10-27T20:49:13.778699"
+    },
+    "reset_interval_seconds": 60
   },
   "tv_control": {
     "type": "samsung",
