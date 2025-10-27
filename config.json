@@ -9,9 +9,9 @@
     },
     "range_meters": {
       "min": 0.75,
-      "max": 11,
+      "max": 2,
       "apply_on_startup": true,
-      "last_applied": "2025-10-27T15:48:07.580923"
+      "last_applied": "2025-10-27T16:58:53.478520"
     }
   },
   "tv_control": {
