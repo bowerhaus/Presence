@@ -10,11 +10,12 @@ import sys
 import argparse
 from datetime import datetime
 
-# Common UART settings for mmWave sensors  
+# Common UART settings for mmWave sensors
 DEFAULT_BAUDRATE = 115200  # DFRobot SENS0395 specification
 # GPIO 15 (RXD) receives UART data from the sensor
-DEFAULT_PORT = "/dev/ttyAMA0"  # Hardware UART on GPIO 14/15
-ALTERNATIVE_PORTS = ["/dev/serial0", "/dev/ttyS0", "/dev/ttyAMA10"]
+DEFAULT_PORT = "/dev/ttyAMA1"  # Hardware UART on GPIO 14/15 (CM5 uses AMA1)
+DEFAULT_DURATION = 30  # Default monitoring duration in seconds
+ALTERNATIVE_PORTS = ["/dev/ttyAMA0", "/dev/serial0", "/dev/ttyS0"]
 
 def setup_serial(port, baudrate, timeout=1):
     """Setup serial connection with error handling"""
@@ -126,7 +127,7 @@ def main():
     parser.add_argument('--port', default=DEFAULT_PORT, help=f'Serial port (default: {DEFAULT_PORT})')
     parser.add_argument('--baudrate', type=int, default=DEFAULT_BAUDRATE, 
                        help=f'Baud rate (default: {DEFAULT_BAUDRATE})')
-    parser.add_argument('--duration', type=int, help='Monitoring duration in seconds (default: unlimited)')
+    parser.add_argument('--duration', type=int, default=DEFAULT_DURATION, help=f'Monitoring duration in seconds (default: {DEFAULT_DURATION})')
     parser.add_argument('--test-bauds', action='store_true', 
                        help='Test multiple baud rates to find the correct one')
     parser.add_argument('--test-ports', action='store_true',

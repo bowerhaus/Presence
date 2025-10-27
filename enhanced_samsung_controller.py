@@ -141,7 +141,7 @@ class EnhancedSamsungTVController:
             self._force_connection_cleanup()
 
         if not HAS_SAMSUNGTVWS:
-            self.logger.error("Samsung TV library not available")
+            self.logger.error(f"Samsung TV library not available (HAS_SAMSUNGTVWS={HAS_SAMSUNGTVWS}, SamsungTVWS={SamsungTVWS is not None})")
             self.connection_stats.consecutive_failures += 1
             self.connection_stats.last_failure = datetime.now()
             return False

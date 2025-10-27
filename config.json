@@ -6,6 +6,12 @@
       "port": "/dev/ttyAMA1",
       "baudrate": 115200,
       "timeout": 1.0
+    },
+    "range_meters": {
+      "min": 0.75,
+      "max": 1,
+      "apply_on_startup": true,
+      "last_applied": "2025-10-27T16:03:49.014213"
     }
   },
   "tv_control": {

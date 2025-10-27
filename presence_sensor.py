@@ -110,16 +110,60 @@ class PresenceSensor:
             baudrate=uart_config["baudrate"],
             timeout=uart_config.get("timeout", 1.0)
         )
-        
+
         # Set up callbacks
         self.uart_sensor.on_presence_detected = self._on_presence_detected_uart
         self.uart_sensor.on_presence_lost = self._on_presence_lost_uart
-        
+
         if not self.uart_sensor.start():
             self.logger.error("Failed to start UART sensor")
             raise RuntimeError("UART sensor initialization failed")
-        
+
+        # Configure sensor range if specified in config
+        self._configure_sensor_range()
+
         self.logger.info("UART sensor initialized successfully")
+
+    def _configure_sensor_range(self):
+        """Configure sensor range if needed based on config settings"""
+        range_config = self.config["sensor"].get("range_meters", {})
+
+        # Check if range configuration should be applied
+        apply_on_startup = range_config.get("apply_on_startup", False)
+
+        if not apply_on_startup:
+            self.logger.debug("Range configuration on startup disabled")
+            return
+
+        min_range = range_config.get("min", 0.5)
+        max_range = range_config.get("max", 3.0)
+
+        self.logger.info(f"Applying range configuration: {min_range}m to {max_range}m")
+
+        try:
+            # Configure the range using the UART sensor's method
+            if self.uart_sensor.configure_range(min_range, max_range):
+                # Update the last_applied timestamp
+                from datetime import datetime
+                import json
+
+                # Read current config, update timestamp, write back
+                try:
+                    with open("config.json", 'r') as f:
+                        config_data = json.load(f)
+
+                    config_data["sensor"]["range_meters"]["last_applied"] = datetime.now().isoformat()
+
+                    with open("config.json", 'w') as f:
+                        json.dump(config_data, f, indent=2)
+
+                    self.logger.info("Range configuration applied and timestamp updated")
+                except Exception as e:
+                    self.logger.warning(f"Failed to update config timestamp: {e}")
+            else:
+                self.logger.error("Failed to configure sensor range")
+        except Exception as e:
+            self.logger.error(f"Error during range configuration: {e}")
     
     def _on_presence_detected_uart(self):
         """Callback when UART sensor detects presence"""

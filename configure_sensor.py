@@ -8,6 +8,41 @@ import serial
 import time
 import sys
 import argparse
+import json
+import os
+from datetime import datetime
+
+def update_config_file(min_meters, max_meters, config_path="config.json"):
+    """Update config.json with new range settings"""
+    try:
+        # Load existing config
+        config_data = {}
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config_data = json.load(f)
+
+        # Ensure sensor section exists
+        if "sensor" not in config_data:
+            config_data["sensor"] = {}
+
+        # Update range configuration
+        config_data["sensor"]["range_meters"] = {
+            "min": min_meters,
+            "max": max_meters,
+            "apply_on_startup": False,  # Don't auto-apply by default
+            "last_applied": datetime.now().isoformat()
+        }
+
+        # Write back to config file
+        with open(config_path, 'w') as f:
+            json.dump(config_data, f, indent=2)
+
+        print(f"✓ Updated {config_path} with range settings: {min_meters}m to {max_meters}m")
+        return True
+
+    except Exception as e:
+        print(f"⚠️  Failed to update config file: {e}")
+        return False
 
 def meters_to_increments(meters):
     """Convert meters to 15cm increments (sensor native units)"""
@@ -71,6 +106,10 @@ def configure_range(ser, min_meters=0.5, max_meters=3.0):
         send_command(ser, "sensorStart")
 
         print(f"✓ Range configured: {min_meters}m to {max_meters}m")
+
+        # Update config file with new settings
+        update_config_file(min_meters, max_meters)
+
         return True
 
     except Exception as e:
@@ -273,6 +312,10 @@ def set_range_simple(port="/dev/ttyAMA1", range_meters=3.0):
 
         ser.close()
         print(f"\n✓ Range configuration complete: 0.5m to {range_meters}m")
+
+        # Update config file with new settings
+        update_config_file(0.5, range_meters)
+
         print("Note: Power cycle sensor if detection seems inconsistent")
 
     except Exception as e:
