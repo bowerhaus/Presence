@@ -61,6 +61,19 @@ class UARTSensor:
             self.logger.error(f"Command failed: {e}")
             return False, str(e)
 
+    def flush_buffer(self):
+        """Flush serial input buffer to discard stale data"""
+        if not self.serial_conn:
+            return
+
+        try:
+            if self.serial_conn.in_waiting > 0:
+                bytes_discarded = self.serial_conn.in_waiting
+                self.serial_conn.reset_input_buffer()
+                self.logger.debug(f"Flushed {bytes_discarded} bytes from serial buffer")
+        except Exception as e:
+            self.logger.warning(f"Failed to flush serial buffer: {e}")
+
     def configure_range(self, min_meters=0.5, max_meters=3.0):
         """Configure detection range using proper 15cm increments"""
 
@@ -214,20 +227,15 @@ class UARTSensor:
                 # Update timestamp
                 self.last_update = datetime.now()
 
-                # For first reading, always set state and trigger callback if needed
-                is_first_reading = (self.last_update is not None and
-                                  hasattr(self, '_first_reading') and
-                                  not getattr(self, '_first_reading', True))
-
-                if not hasattr(self, '_first_reading'):
-                    self._first_reading = False
-                    # First reading - establish initial state
+                # First reading - establish initial state without triggering callbacks
+                if not hasattr(self, '_first_reading_done'):
+                    self._first_reading_done = True
                     self.presence_detected = new_presence
                     self.logger.debug(f"First sensor reading: {'PRESENT' if new_presence else 'ABSENT'}")
                     # Don't trigger callbacks on first reading, just establish state
                     return
 
-                # Check for state change
+                # Check for state change (only after first reading)
                 if new_presence != self.presence_detected:
                     old_state = self.presence_detected
                     self.presence_detected = new_presence
@@ -255,9 +263,9 @@ class UARTSensor:
                 pass
             self.serial_conn = None
 
-        # Reset first reading flag on reconnection
-        if hasattr(self, '_first_reading'):
-            delattr(self, '_first_reading')
+        # Reset first reading flag on reconnection to re-establish state
+        if hasattr(self, '_first_reading_done'):
+            delattr(self, '_first_reading_done')
 
         time.sleep(1)
         self.connect()

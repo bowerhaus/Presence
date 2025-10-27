@@ -7,8 +7,10 @@ import threading
 import signal
 import sys
 import argparse
+import queue
 from datetime import datetime, timedelta
 from pathlib import Path
+from enum import Enum
 
 try:
     import RPi.GPIO as GPIO
@@ -121,6 +123,13 @@ class LEDController:
                 pass
 
 
+class TVCommand(Enum):
+    """TV control commands"""
+    TURN_ON = "turn_on"
+    TURN_OFF = "turn_off"
+    CANCEL_OFF_TIMER = "cancel_off_timer"
+
+
 class PresenceSensor:
     """Human presence detection system for Samsung TV control"""
     
@@ -138,7 +147,12 @@ class PresenceSensor:
         self.tv_on = False
         self.running = False
         self.turn_off_timer = None
-        
+
+        # TV command queue and worker thread (non-blocking TV control)
+        self.tv_command_queue = queue.Queue()
+        self.tv_worker_thread = None
+        self.tv_worker_running = False
+
         # Sensor handling variables
         self.uart_sensor = None
         self.gpio_handle = None
@@ -266,24 +280,89 @@ class PresenceSensor:
                 self.logger.error("Failed to configure sensor range")
         except Exception as e:
             self.logger.error(f"Error during range configuration: {e}")
-    
+
+    def _tv_command_worker(self):
+        """Worker thread that processes TV commands asynchronously"""
+        self.logger.info("TV command worker thread started")
+
+        while self.tv_worker_running:
+            try:
+                # Wait for command with timeout so we can check running flag
+                try:
+                    command = self.tv_command_queue.get(timeout=1.0)
+                except queue.Empty:
+                    continue
+
+                self.logger.debug(f"Processing TV command: {command}")
+
+                # Flush serial buffer before TV operation to clear any stale data
+                if self.uart_sensor:
+                    self.uart_sensor.flush_buffer()
+                    self.logger.debug("Flushed serial buffer before TV operation")
+
+                # Process the command
+                if command == TVCommand.TURN_ON:
+                    self._turn_tv_on_blocking()
+                elif command == TVCommand.TURN_OFF:
+                    self._turn_tv_off_blocking()
+                elif command == TVCommand.CANCEL_OFF_TIMER:
+                    self._cancel_tv_off_blocking()
+
+                # Flush serial buffer after TV operation
+                if self.uart_sensor:
+                    self.uart_sensor.flush_buffer()
+                    self.logger.debug("Flushed serial buffer after TV operation")
+
+                # Brief pause to let sensor settle
+                time.sleep(0.5)
+
+                # Verify sensor state after TV operation to detect any changes during operation
+                if self.uart_sensor:
+                    current_sensor_state = self.uart_sensor.get_presence()
+                    self.logger.debug(f"Post-TV-operation sensor check: {current_sensor_state}, internal: {self.presence_detected}")
+
+                    # If sensor state differs from our internal state, log warning
+                    # (don't auto-correct as this could cause loops - let natural state change handle it)
+                    if current_sensor_state != self.presence_detected:
+                        self.logger.warning(f"Sensor state mismatch after TV operation: sensor={current_sensor_state}, internal={self.presence_detected}")
+
+                self.tv_command_queue.task_done()
+
+            except Exception as e:
+                self.logger.error(f"Error in TV command worker: {e}")
+                import traceback
+                self.logger.debug(f"Worker traceback: {traceback.format_exc()}")
+                time.sleep(1)
+
+        self.logger.info("TV command worker thread stopped")
+
+    def _enqueue_tv_command(self, command: TVCommand):
+        """Enqueue a TV command for async processing"""
+        try:
+            self.tv_command_queue.put(command, block=False)
+            self.logger.debug(f"Enqueued TV command: {command}")
+        except queue.Full:
+            self.logger.error(f"TV command queue full, dropping command: {command}")
+
     def _on_presence_detected_uart(self):
-        """Callback when UART sensor detects presence"""
+        """Callback when UART sensor detects presence (NON-BLOCKING)"""
         if not self.presence_detected:
             self.presence_detected = True
             self.last_presence_time = datetime.now()
             self.logger.info("PRESENCE DETECTED")
             self.led_controller.fade_in(self.led_fade_duration, self.led_brightness)
-            self._cancel_tv_off()
-            self._turn_tv_on()
-    
+            # Enqueue commands instead of calling directly (non-blocking)
+            self._enqueue_tv_command(TVCommand.CANCEL_OFF_TIMER)
+            self._enqueue_tv_command(TVCommand.TURN_ON)
+
     def _on_presence_lost_uart(self):
-        """Callback when UART sensor loses presence"""
+        """Callback when UART sensor loses presence (NON-BLOCKING)"""
         if self.presence_detected:
             self.presence_detected = False
             self.last_presence_lost_time = datetime.now()
             self.logger.info("PRESENCE LOST")
             self.led_controller.fade_out(self.led_fade_duration)
+            # Schedule TV off through timer (already non-blocking)
             self._schedule_tv_off()
     
     def _setup_gpio(self):
@@ -394,19 +473,19 @@ class PresenceSensor:
         self.logger.error("No GPIO method available to read sensor!")
         return False
     
-    def _turn_tv_on(self):
-        """Turn TV on immediately"""
+    def _turn_tv_on_blocking(self):
+        """Turn TV on immediately (BLOCKING - should only be called from worker thread)"""
         if self.tv_on:
             self.logger.debug("TV already on")
             return
-        
+
         self.logger.info("Turning TV ON")
-        
+
         if self.dry_run:
             self.logger.info("DRY RUN: Would turn TV on")
             self.tv_on = True
             return
-        
+
         try:
             # Use ensure_power_state for more reliable control
             success = self.tv_controller.ensure_power_state(True)
@@ -420,19 +499,19 @@ class PresenceSensor:
             import traceback
             self.logger.debug(f"Full traceback: {traceback.format_exc()}")
     
-    def _turn_tv_off(self):
-        """Turn TV off after delay"""
+    def _turn_tv_off_blocking(self):
+        """Turn TV off (BLOCKING - should only be called from worker thread)"""
         if not self.tv_on:
             self.logger.debug("TV already off")
             return
-        
+
         self.logger.info("Turning TV OFF")
-        
+
         if self.dry_run:
             self.logger.info("DRY RUN: Would turn TV off")
             self.tv_on = False
             return
-        
+
         try:
             # Use ensure_power_state for more reliable control
             success = self.tv_controller.ensure_power_state(False)
@@ -448,20 +527,22 @@ class PresenceSensor:
         """Schedule TV to turn off after delay"""
         if self.turn_off_timer:
             self.turn_off_timer.cancel()
-        
+
         self.logger.info(f"Scheduling TV off in {self.turn_off_delay} seconds")
-        self.turn_off_timer = threading.Timer(self.turn_off_delay, self._turn_tv_off)
+        # Schedule enqueue of TURN_OFF command instead of calling method directly
+        self.turn_off_timer = threading.Timer(self.turn_off_delay,
+                                              lambda: self._enqueue_tv_command(TVCommand.TURN_OFF))
         self.turn_off_timer.start()
-    
-    def _cancel_tv_off(self):
-        """Cancel scheduled TV off"""
+
+    def _cancel_tv_off_blocking(self):
+        """Cancel scheduled TV off (BLOCKING - called from worker thread)"""
         if self.turn_off_timer:
             self.turn_off_timer.cancel()
             self.turn_off_timer = None
             self.logger.info("Cancelled scheduled TV off")
     
     def _on_presence_detected(self):
-        """Handle presence detection"""
+        """Handle presence detection (GPIO mode - NON-BLOCKING)"""
         now = datetime.now()
 
         if (self.last_presence_time is None or
@@ -471,13 +552,14 @@ class PresenceSensor:
                 self.logger.info("PRESENCE DETECTED")
                 self.presence_detected = True
                 self.led_controller.fade_in(self.led_fade_duration, self.led_brightness)
-                self._cancel_tv_off()
-                self._turn_tv_on()
+                # Enqueue commands instead of calling directly (non-blocking)
+                self._enqueue_tv_command(TVCommand.CANCEL_OFF_TIMER)
+                self._enqueue_tv_command(TVCommand.TURN_ON)
 
             self.last_presence_time = now
-    
+
     def _on_presence_lost(self):
-        """Handle loss of presence"""
+        """Handle loss of presence (GPIO mode - NON-BLOCKING)"""
         now = datetime.now()
 
         if (self.last_presence_lost_time is None or
@@ -536,11 +618,16 @@ class PresenceSensor:
     def start(self):
         """Start the presence detection system"""
         self.running = True
-        
+
+        # Start TV command worker thread
+        self.tv_worker_running = True
+        self.tv_worker_thread = threading.Thread(target=self._tv_command_worker, daemon=True, name="TV-Worker")
+        self.tv_worker_thread.start()
+
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
-        
+
         try:
             self.logger.info("Presence sensor system starting...")
             self._monitor_loop()
@@ -553,6 +640,14 @@ class PresenceSensor:
         """Stop the presence detection system"""
         self.logger.info("Stopping presence sensor system...")
         self.running = False
+
+        # Stop TV command worker thread
+        self.tv_worker_running = False
+        if self.tv_worker_thread and self.tv_worker_thread.is_alive():
+            self.logger.info("Waiting for TV command worker to finish...")
+            self.tv_worker_thread.join(timeout=5)
+            if self.tv_worker_thread.is_alive():
+                self.logger.warning("TV command worker did not stop gracefully")
 
         if self.turn_off_timer:
             self.turn_off_timer.cancel()
