@@ -25,12 +25,14 @@ from uart_sensor import UARTSensor
 
 
 class LEDController:
-    """Simple LED controller using lgpio"""
+    """LED controller with PWM dimming support using lgpio"""
 
     def __init__(self, pin: int):
         self.pin = pin
         self.gpio_handle = None
         self.state = False
+        self.brightness = 0  # 0-100%
+        self.pwm_frequency = 1000  # 1kHz PWM frequency
         self._setup_gpio()
 
     def _setup_gpio(self):
@@ -44,29 +46,75 @@ class LEDController:
                 print(f"Failed to setup LED GPIO: {e}")
                 self.gpio_handle = None
 
-    def on(self):
-        """Turn LED on"""
+    def set_brightness(self, percentage: float):
+        """Set LED brightness (0-100%)"""
         if self.gpio_handle is not None:
             try:
-                lgpio.gpio_write(self.gpio_handle, self.pin, 1)
-                self.state = True
+                percentage = max(0, min(100, percentage))  # Clamp to 0-100%
+                self.brightness = percentage
+
+                if percentage == 0:
+                    # Use PWM at 0% duty cycle instead of turning off
+                    lgpio.tx_pwm(self.gpio_handle, self.pin, self.pwm_frequency, 0)
+                    self.state = False
+                elif percentage == 100:
+                    # Use PWM at 100% duty cycle instead of turning off
+                    lgpio.tx_pwm(self.gpio_handle, self.pin, self.pwm_frequency, 100)
+                    self.state = True
+                else:
+                    # Use PWM for intermediate brightness
+                    # lgpio tx_pwm expects: frequency, duty_cycle_percent (0-100)
+                    lgpio.tx_pwm(self.gpio_handle, self.pin, self.pwm_frequency, percentage)
+                    self.state = True
+
             except Exception as e:
-                print(f"Failed to turn LED on: {e}")
+                print(f"Failed to set LED brightness: {e}")
+
+    def on(self, brightness: float = 100):
+        """Turn LED on at specified brightness (default 100%)"""
+        self.set_brightness(brightness)
 
     def off(self):
         """Turn LED off"""
-        if self.gpio_handle is not None:
-            try:
-                lgpio.gpio_write(self.gpio_handle, self.pin, 0)
-                self.state = False
-            except Exception as e:
-                print(f"Failed to turn LED off: {e}")
+        self.set_brightness(0)
+
+    def fade_to(self, target_brightness: float, duration: float = 1.0, steps: int = 50):
+        """Fade LED to target brightness over specified duration"""
+        if self.gpio_handle is None:
+            return
+
+        import threading
+        import time
+
+        def fade_thread():
+            start_brightness = self.brightness
+            step_delay = duration / steps
+            brightness_step = (target_brightness - start_brightness) / steps
+
+            for i in range(steps + 1):
+                current_brightness = start_brightness + (brightness_step * i)
+                self.set_brightness(current_brightness)
+                if i < steps:  # Don't sleep after the last step
+                    time.sleep(step_delay)
+
+        # Run fade in background thread
+        thread = threading.Thread(target=fade_thread, daemon=True)
+        thread.start()
+
+    def fade_in(self, duration: float = 1.0, target_brightness: float = 100):
+        """Fade LED in from current brightness to target brightness"""
+        self.fade_to(target_brightness, duration)
+
+    def fade_out(self, duration: float = 1.0):
+        """Fade LED out to off"""
+        self.fade_to(0, duration)
 
     def cleanup(self):
         """Cleanup GPIO resources"""
         if self.gpio_handle is not None:
             try:
-                lgpio.gpio_write(self.gpio_handle, self.pin, 0)  # Turn off LED
+                # Turn off LED using PWM at 0%
+                lgpio.tx_pwm(self.gpio_handle, self.pin, self.pwm_frequency, 0)
                 lgpio.gpio_free(self.gpio_handle, self.pin)
                 lgpio.gpiochip_close(self.gpio_handle)
             except:
@@ -97,7 +145,9 @@ class PresenceSensor:
         self.use_lgpio = False
 
         # LED control
-        self.led_controller = LEDController(5)
+        self.led_controller = LEDController(12)
+        self.led_brightness = self.config.get("led", {}).get("brightness", 100)
+        self.led_fade_duration = self.config.get("led", {}).get("fade_duration", 1.0)
         
         self.dev_mode = self.config.get("dev_mode", {})
         self.dry_run = self.dev_mode.get("dry_run", False)
@@ -223,7 +273,7 @@ class PresenceSensor:
             self.presence_detected = True
             self.last_presence_time = datetime.now()
             self.logger.info("PRESENCE DETECTED")
-            self.led_controller.on()
+            self.led_controller.fade_in(self.led_fade_duration, self.led_brightness)
             self._cancel_tv_off()
             self._turn_tv_on()
     
@@ -233,7 +283,7 @@ class PresenceSensor:
             self.presence_detected = False
             self.last_presence_lost_time = datetime.now()
             self.logger.info("PRESENCE LOST")
-            self.led_controller.off()
+            self.led_controller.fade_out(self.led_fade_duration)
             self._schedule_tv_off()
     
     def _setup_gpio(self):
@@ -420,7 +470,7 @@ class PresenceSensor:
             if not self.presence_detected:
                 self.logger.info("PRESENCE DETECTED")
                 self.presence_detected = True
-                self.led_controller.on()
+                self.led_controller.fade_in(self.led_fade_duration, self.led_brightness)
                 self._cancel_tv_off()
                 self._turn_tv_on()
 
@@ -436,7 +486,7 @@ class PresenceSensor:
             if self.presence_detected:
                 self.logger.info("PRESENCE LOST")
                 self.presence_detected = False
-                self.led_controller.off()
+                self.led_controller.fade_out(self.led_fade_duration)
                 self._schedule_tv_off()
 
             self.last_presence_lost_time = now

@@ -9,9 +9,9 @@
     },
     "range_meters": {
       "min": 0.75,
-      "max": 2,
+      "max": 3,
       "apply_on_startup": true,
-      "last_applied": "2025-10-27T16:58:53.478520"
+      "last_applied": "2025-10-27T19:36:34.892051"
     }
   },
   "tv_control": {
@@ -29,6 +29,10 @@
     "mac_address": "28:af:42:46:a8:0e",
     "connection_timeout": 10,
     "wake_on_lan": true
+  },
+  "led": {
+    "brightness": 50,
+    "fade_duration": 1
   },
   "logging": {
     "level": "INFO",
