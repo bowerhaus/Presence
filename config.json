@@ -9,15 +9,15 @@
     },
     "range_meters": {
       "min": 0.75,
-      "max": 3,
+      "max": 3.5,
       "apply_on_startup": true,
-      "last_applied": "2025-10-27T20:49:13.778699"
+      "last_applied": "2025-10-28T11:02:38.975809"
     },
     "reset_interval_seconds": 60
   },
   "tv_control": {
     "type": "samsung",
-    "turn_off_delay": 20,
+    "turn_off_delay": 60,
     "turn_on_delay": 0,
     "retry_attempts": 3,
     "retry_delay": 2
