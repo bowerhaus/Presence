@@ -29,7 +29,96 @@ class UARTSensor:
         # Callbacks
         self.on_presence_detected = None
         self.on_presence_lost = None
-        
+
+    def meters_to_increments(self, meters):
+        """Convert meters to 15cm increments (sensor native units)"""
+        return round(meters / 0.15)
+
+    def increments_to_meters(self, increments):
+        """Convert 15cm increments back to meters"""
+        return increments * 0.15
+
+    def send_command(self, command, wait_time=1.0):
+        """Send a command to the sensor and wait for response"""
+        if not self.serial_conn:
+            self.logger.error("No serial connection for sending command")
+            return False, ""
+
+        try:
+            self.logger.debug(f"Sending command: {command}")
+            self.serial_conn.write((command + '\r\n').encode('utf-8'))
+            time.sleep(wait_time)
+
+            # Read response
+            response = ""
+            while self.serial_conn.in_waiting > 0:
+                response += self.serial_conn.read(self.serial_conn.in_waiting).decode('utf-8', errors='ignore')
+
+            if response:
+                self.logger.debug(f"Command response: {response.strip()}")
+            return True, response.strip()
+        except Exception as e:
+            self.logger.error(f"Command failed: {e}")
+            return False, str(e)
+
+    def flush_buffer(self):
+        """Flush serial input buffer to discard stale data"""
+        if not self.serial_conn:
+            return
+
+        try:
+            if self.serial_conn.in_waiting > 0:
+                bytes_discarded = self.serial_conn.in_waiting
+                self.serial_conn.reset_input_buffer()
+                self.logger.debug(f"Flushed {bytes_discarded} bytes from serial buffer")
+        except Exception as e:
+            self.logger.warning(f"Failed to flush serial buffer: {e}")
+
+    def configure_range(self, min_meters=0.5, max_meters=3.0):
+        """Configure detection range using proper 15cm increments"""
+
+        # Convert meters to 15cm increments
+        min_increments = self.meters_to_increments(min_meters)
+        max_increments = self.meters_to_increments(max_meters)
+
+        # Validate range (sensor supports 0-127 increments = 0-19.05m)
+        if min_increments < 0 or max_increments > 127:
+            max_supported = self.increments_to_meters(127)
+            self.logger.error(f"Range out of bounds. Max supported range is {max_supported:.1f}m")
+            return False
+
+        self.logger.info(f"Configuring range: {min_meters}m to {max_meters}m ({min_increments} to {max_increments} increments)")
+
+        try:
+            # Stop sensor for configuration
+            success, response = self.send_command("sensorStop")
+            if not success:
+                return False
+
+            # Set detection range using proper increment values
+            range_cmd = f"detRangeCfg -1 {min_increments} {max_increments}"
+            success, response = self.send_command(range_cmd)
+            if not success:
+                return False
+
+            # Save configuration
+            save_cmd = "saveCfg 0x45670123 0xCDEF89AB 0x956128C6 0xDF54AC89"
+            success, response = self.send_command(save_cmd)
+            if not success:
+                return False
+
+            # Restart sensor
+            success, response = self.send_command("sensorStart")
+            if not success:
+                return False
+
+            self.logger.info(f"Range configured successfully: {min_meters}m to {max_meters}m")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error configuring range: {e}")
+            return False
+
     def connect(self):
         """Initialize serial connection"""
         try:
@@ -52,13 +141,38 @@ class UARTSensor:
         if not self.serial_conn:
             if not self.connect():
                 return False
-        
+
         self.running = True
         self.read_thread = threading.Thread(target=self._read_loop, daemon=True)
         self.read_thread.start()
+
+        # Wait briefly for initial sensor data to sync state
+        self._sync_initial_state()
+
         self.logger.info("Started sensor monitoring")
         return True
-    
+
+    def _sync_initial_state(self):
+        """Wait for initial sensor reading to sync internal state with hardware"""
+        self.logger.debug("Syncing initial sensor state...")
+
+        # Wait up to 3 seconds for first sensor reading
+        sync_timeout = 3.0
+        start_time = time.time()
+
+        while (time.time() - start_time) < sync_timeout and self.running:
+            if self.last_update is not None:
+                # We got our first reading, state is now synced
+                initial_state = "PRESENT" if self.presence_detected else "ABSENT"
+                self.logger.info(f"Initial sensor state synced: {initial_state}")
+                return
+            time.sleep(0.1)
+
+        # Timeout - assume no presence if no data received
+        if self.last_update is None:
+            self.logger.warning("No initial sensor data received - assuming no presence")
+            self.presence_detected = False
+
     def stop(self):
         """Stop monitoring sensor data"""
         self.running = False
@@ -109,14 +223,27 @@ class UARTSensor:
             if len(parts) >= 2:
                 presence_value = parts[1].strip()
                 new_presence = (presence_value == '1')
-                
+
+                self.logger.debug(f"Raw sensor: '{line}' -> presence_value='{presence_value}' -> new_presence={new_presence}")
+
                 # Update timestamp
                 self.last_update = datetime.now()
-                
-                # Check for state change
-                if new_presence != self.presence_detected:
+
+                # First reading - establish initial state without triggering callbacks
+                if not hasattr(self, '_first_reading_done'):
+                    self._first_reading_done = True
                     self.presence_detected = new_presence
-                    
+                    self.logger.debug(f"First sensor reading: {'PRESENT' if new_presence else 'ABSENT'}")
+                    # Don't trigger callbacks on first reading, just establish state
+                    return
+
+                # Check for state change (only after first reading)
+                if new_presence != self.presence_detected:
+                    old_state = self.presence_detected
+                    self.presence_detected = new_presence
+
+                    self.logger.debug(f"State change: {old_state} -> {new_presence}")
+
                     if new_presence:
                         self.logger.info("Presence detected")
                         if self.on_presence_detected:
@@ -125,7 +252,7 @@ class UARTSensor:
                         self.logger.info("Presence lost")
                         if self.on_presence_lost:
                             self.on_presence_lost()
-                            
+
         except Exception as e:
             self.logger.warning(f"Failed to parse sensor data '{line}': {e}")
     
@@ -137,7 +264,11 @@ class UARTSensor:
             except:
                 pass
             self.serial_conn = None
-        
+
+        # Reset first reading flag on reconnection to re-establish state
+        if hasattr(self, '_first_reading_done'):
+            delattr(self, '_first_reading_done')
+
         time.sleep(1)
         self.connect()
     

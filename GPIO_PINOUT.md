@@ -7,12 +7,14 @@ We are using **BCM (GPIO) numbering**, not physical pin numbers.
 | Function | GPIO (BCM) | Physical Pin | Notes |
 |----------|------------|--------------|-------|
 | **Presence Sensor** | GPIO 14 | Pin 8 | DFRobot SENS0395 trigger output |
+| **IR Transmitter** | GPIO 17 | Pin 11 | ADA5990 IR transmitter signal |
+| **IR Receiver** | GPIO 22 | Pin 15 | ADA5990 IR receiver signal |
 
 ### Available GPIO Pins:
 | GPIO (BCM) | Physical Pin | Status | Notes |
 |------------|--------------|--------|-------|
-| GPIO 23 | Pin 16 | Available | Previously used for IR receiver |
-| GPIO 24 | Pin 18 | Available | Previously used for IR transmitter |
+| GPIO 23 | Pin 16 | Available | Previously used for failed IR setup |
+| GPIO 24 | Pin 18 | Available | Previously used for failed IR setup |
 
 ### Important Notes:
 - `GPIO.setmode(GPIO.BCM)` is used in all scripts
@@ -56,11 +58,18 @@ GPIO.setup(14, GPIO.IN)  # Presence sensor on GPIO14, not physical pin 14
 
 ### Wiring Summary:
 1. **DFRobot SENS0395 Presence Sensor**:
-   - VCC → 5V (Pin 2 or 4)  
+   - VCC → 5V (Pin 2 or 4)
    - GND → GND (Any GND pin)
    - OUT → GPIO 14 (Physical Pin 8)
 
-### Network Control Benefits:
-- No GPIO pins needed for TV control (network-based)  
-- Simplified wiring with only sensor connection required
-- GPIO 23 and 24 available for future expansion
+2. **Adafruit ADA5990 IR Transceiver**:
+   - VCC → 5V (Pin 4)
+   - GND → GND (Pin 6)
+   - TX Signal → GPIO 17 (Physical Pin 11)
+   - RX Signal → GPIO 22 (Physical Pin 15)
+
+### IR Control Benefits:
+- Hardware-based control independent of network issues
+- Discrete power on/off codes for reliable state control
+- 10+ meter range with powerful IR LEDs
+- No dependency on Samsung network API reliability

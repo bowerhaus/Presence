@@ -1,67 +1,96 @@
 # Presence Detection System
 
-A Raspberry Pi-based human presence detection system that automatically controls a Samsung Frame 43" TV based on room occupancy using Samsung's network API.
+A Raspberry Pi-based human presence detection system that automatically controls a Samsung Frame 43" TV based on room occupancy.
 
-## Features
+⚠️ **PROJECT STATUS: TV CONTROL UNDER DEVELOPMENT** ⚠️
 
-- **Network-Based TV Control**: Reliable Samsung TV control via WiFi/Ethernet (no IR hardware required)
-- **Accurate Power State Detection**: Real-time TV state monitoring using Samsung PowerState API
-- **Human Presence Detection**: DFRobot SENS0395 mmWave sensor for reliable occupancy detection
-- **Smart Power Management**: Immediate TV on, 10-minute delayed TV off
-- **Auto-Discovery**: Automatic Samsung TV detection and configuration on local network
-- **Development Mode**: Dry-run testing with verbose logging
-- **Virtual Environment**: Clean dependency management with isolated Python environment
+The presence detection system is **fully functional** but TV control remains **unreliable** due to Samsung WebSocket API limitations. Multiple control methods have been attempted and documented in `archive_failed_attempts/`.
+
+## Current Status
+
+✅ **Working Components:**
+- **Human Presence Detection**: DFRobot SENS0395 mmWave sensor via UART (3.5m max range configured)
+- **LED Visual Feedback**: PWM-controlled LED on GPIO 12 with fade effects (brightness 0-100%)
+- **Periodic Sensor Reset**: Automatic sensor reset every 60s to prevent firmware glitches from ground loop interference
+- **Sensor Framework**: Complete UART communication and GPIO trigger modes
+- **Configuration System**: JSON-based configuration with development modes
+- **Logging Infrastructure**: Comprehensive logging with file/console output
+
+⚠️ **Problematic Components:**
+- **Samsung TV Control**: Network API has intermittent WebSocket failures
+- **Power State Management**: Connection reuse issues cause stale connections
+
+❌ **Failed Control Methods (See `archive_failed_attempts/`):**
+- Direct Tapo PyP100 smart plug control (authentication failures)
+- Amazon Alexa AlexaPy integration (2FA/security blocking)
+- Kasa smart plug protocol (device incompatibility)
+- IR hardware control attempts (removed from codebase)
 
 ## Hardware Requirements
 
-- **Raspberry Pi** (tested on Pi 4/5)
-- **DFRobot SENS0395 mmWave sensor** (GPIO 14, configurable)
-- **Samsung Frame TV** (or other Samsung Smart TV with network API support, 2016+)
-- **Network Connection**: TV and Pi on same network (WiFi/Ethernet)
+✅ **Currently Working:**
+- **Raspberry Pi CM5** (tested and configured)
+- **DFRobot SENS0395 mmWave sensor** (UART on `/dev/ttyAMA1`, 3.5m max detection range)
+- **LED Indicator** (GPIO pin 12, PWM-controlled for brightness/fade effects)
+- **Network Connection**: WiFi connectivity established
 
-### ~~Eliminated Hardware~~ ✅
-- ~~Adafruit IR blaster~~ - No longer needed with network control
-- ~~HDMI CEC connection~~ - Optional backup only
+⚠️ **TV Control Hardware (Unreliable):**
+- **Samsung Frame 43" TV** (WebSocket API intermittently functional)
+- **TP-Link Tapo Smart Plug** (manual Alexa control works, API control failed)
+
+### Eliminated Hardware ❌
+- ~~IR hardware control~~ - All IR-related code removed from project
+- ~~HDMI CEC connection~~ - CEC-related code removed from project
 
 ## Quick Start
 
 ### 1. Clone and Setup
 ```bash
 git clone <your-repo-url>
-cd presence-detection
+cd Presence
 
-# Create virtual environment and install dependencies
-python3 -m venv venv
+# Virtual environment already configured with dependencies
 source venv/bin/activate
-pip install samsungtvws[async,encrypted]
 ```
 
-### 2. Discover and Configure TV
+### 2. Test Presence Detection (Working)
 ```bash
 # Activate virtual environment (always required)
 source venv/bin/activate
 
-# Auto-discover Samsung TV on network
-python3 discover_samsung_tv.py
-```
-This will automatically configure your TV's IP address, port, and Wake-on-LAN settings in `config.json`.
-
-### 3. Test TV Control
-```bash
-# Test power control
-python3 samsung_tv_control.py status    # Check current TV state
-python3 samsung_tv_control.py on        # Turn TV on
-python3 samsung_tv_control.py off       # Turn TV off
-python3 samsung_tv_control.py info      # Show TV details
-```
-
-### 4. Test Presence Detection System
-```bash
-# Test in development mode (simulated sensor)
+# Test presence detection with real sensor
 python3 presence_sensor.py --dev --dry-run --verbose
 
-# With actual sensor connected
-python3 presence_sensor.py --dev --verbose
+# Test sensor UART communication directly
+python3 debug_sensor_strings.py --port /dev/ttyAMA1 --duration 30
+```
+
+### 3. Test TV Control (Unreliable)
+```bash
+# Discover Samsung TV on network
+python3 discover_samsung_tv.py
+
+# Test power control (may fail intermittently)
+python3 samsung_tv_control.py status    # Check current TV state
+python3 power_on.py                      # Turn TV on
+python3 power_off.py                     # Turn TV off
+```
+
+### 4. Production Setup (Recommended)
+```bash
+# Install and start as a system service
+./service_manager.sh install    # One-time setup
+./service_manager.sh start      # Start the service
+./service_manager.sh logs       # Monitor activity
+
+# This runs the presence detection automatically in the background
+```
+
+### 5. Development Testing
+```bash
+# Test the working presence detection system
+python3 presence_sensor.py --dev --dry-run --verbose
+# This will show presence detection working with simulated TV control
 ```
 
 ## Configuration
@@ -83,13 +112,22 @@ The system uses `config.json` for all settings. Key sections:
 }
 ```
 
-### Sensor Configuration
+### Sensor Configuration (Working)
 ```json
 {
   "sensor": {
-    "gpio_pin": 14,           // GPIO pin for presence sensor
-    "debounce_time": 2.0,     // Sensor debounce seconds
-    "mode": "trigger"         // Sensor mode (trigger/uart)
+    "mode": "uart",                    // UART mode (working)
+    "uart": {
+      "port": "/dev/ttyAMA1",          // UART port for CM5
+      "baudrate": 115200,              // Communication speed
+      "timeout": 1.0                   // Read timeout
+    },
+    "range_meters": {
+      "min": 0.75,                     // Minimum detection range
+      "max": 3.5,                      // Maximum detection range
+      "apply_on_startup": true         // Apply range on startup
+    },
+    "reset_interval_seconds": 60       // Auto-reset every 60s (prevents firmware glitches)
   }
 }
 ```
@@ -98,10 +136,20 @@ The system uses `config.json` for all settings. Key sections:
 ```json
 {
   "tv_control": {
-    "turn_off_delay": 600,    // 10 minutes before TV off
+    "turn_off_delay": 60,     // 60 seconds before TV off
     "turn_on_delay": 0,       // Immediate TV on
     "retry_attempts": 3,      // Connection retry count
     "retry_delay": 2          // Seconds between retries
+  }
+}
+```
+
+### LED Configuration
+```json
+{
+  "led": {
+    "brightness": 50,         // LED brightness (0-100%)
+    "fade_duration": 1.0      // Fade effect duration in seconds
   }
 }
 ```
@@ -120,24 +168,30 @@ The system uses `config.json` for all settings. Key sections:
 
 ## Available Commands
 
-### TV Control Commands
+### Service Management (Recommended)
+```bash
+# Service management script (no venv activation needed)
+./service_manager.sh install    # Install systemd service (one-time setup)
+./service_manager.sh start      # Start presence detection service
+./service_manager.sh stop       # Stop the service
+./service_manager.sh restart    # Restart the service
+./service_manager.sh status     # Check service status
+./service_manager.sh logs       # View live service logs
+./service_manager.sh kill       # Emergency stop and disable
+./service_manager.sh uninstall  # Remove service completely
+```
+
+### Manual TV Control Commands
 ```bash
 # Always activate virtual environment first
 source venv/bin/activate
 
 # Direct TV control
-python3 samsung_tv_control.py on           # Turn TV on (smart method selection)
-python3 samsung_tv_control.py off          # Turn TV off (to standby)
-python3 samsung_tv_control.py toggle       # Smart toggle based on current state
-python3 samsung_tv_control.py status       # Show current power state
-python3 samsung_tv_control.py info         # Show TV information
-
-# Context-aware control (recommended for automation)
-python3 samsung_tv_control.py ensure-on    # Ensure TV is on
-python3 samsung_tv_control.py ensure-off   # Ensure TV is off
+python3 power_on.py                         # Turn TV on
+python3 power_off.py                        # Turn TV off
 
 # Discovery and configuration
-python3 discover_samsung_tv.py             # Find and configure Samsung TVs
+python3 discover_samsung_tv.py              # Find and configure Samsung TVs
 ```
 
 ### Presence Detection Commands
@@ -149,6 +203,12 @@ python3 presence_sensor.py --dev --dry-run --verbose  # Full simulation
 
 # Custom configuration
 python3 presence_sensor.py --config custom.json  # Use custom config file
+```
+
+### LED Testing Commands
+```bash
+# Test LED functionality
+python3 test_led_dimming.py                      # Test LED brightness and fade effects
 ```
 
 ## Samsung TV Network Control
@@ -178,11 +238,12 @@ The system uses Samsung's WebSocket API for reliable TV control over the network
 ## Architecture
 
 ### Control Flow
-1. **Presence Detected** → Immediate TV power on (WebSocket/Wake-on-LAN)
-2. **TV ON State** → Monitor continued presence
-3. **No Presence** → Start 10-minute countdown timer  
+1. **Presence Detected** → LED fades in + Immediate TV power on (WebSocket/Wake-on-LAN)
+2. **TV ON State** → Monitor continued presence, LED stays on
+3. **No Presence** → LED fades out + Start 60-second countdown timer
 4. **Timer Expires** → TV power off to standby mode
-5. **Presence Returns** → Cancel timer, ensure TV remains on
+5. **Presence Returns** → Cancel timer, LED fades in, ensure TV remains on
+6. **Sensor Auto-Reset** → Periodic reset every 60s to prevent firmware glitches
 
 ### Smart Power Control Strategy
 **Power ON Logic:**
@@ -199,59 +260,94 @@ The system uses Samsung's WebSocket API for reliable TV control over the network
 ## Project Structure
 
 ```
-presence_sensor.py          # Main application with Samsung network integration
-samsung_tv_control.py       # Samsung TV network control module  
+# Core Components
+presence_sensor.py          # Main application with Samsung network integration and LED control
+uart_sensor.py              # UART sensor interface for DFRobot SENS0395
+enhanced_samsung_controller.py  # Enhanced Samsung TV network control module
 discover_samsung_tv.py      # TV discovery and auto-configuration
-config.json                 # System configuration (GPIO, network, timing)
+config.json                 # System configuration (sensor, TV, LED, timing)
+
+# Service Management
+service_manager.sh          # Systemd service management script
+                           # (install, start, stop, restart, status, logs, kill)
+
+# Control Scripts
+power_on.py                 # Manual TV power on script
+power_off.py                # Manual TV power off script
+
+# Development Tools
+debug_sensor_strings.py     # UART sensor debugging utility
+configure_sensor.py         # Sensor range configuration tool
+check_sensor_config.py      # Sensor settings verification
+test_led_dimming.py         # LED brightness and fade effect testing
+
+# Environment
 venv/                       # Python virtual environment with dependencies
-├── lib/python3.11/site-packages/
-│   └── samsungtvws/        # Samsung TV WebSocket library
-lib/                        # Future modular components (planned)
-├── sensor.py              # Sensor abstraction (planned)
-└── state_machine.py       # State management (planned)
-tests/                     # Test suite (planned)
-scripts/                   # Installation automation (planned)
-└── install.sh            # Service installation (planned)
+archive_failed_attempts/    # Failed control methods (reference only)
 ```
 
 ## Installation as Service (Production)
 
-### Manual Service Setup
+### Recommended: Automated Service Setup
 ```bash
-# Create service file
-sudo tee /etc/systemd/system/presence-sensor.service << EOF
-[Unit]
-Description=Presence Detection TV Control
-After=network.target
+# Use the service manager script (easiest method)
+./service_manager.sh install    # Install and enable the service
+./service_manager.sh start      # Start the service
+./service_manager.sh status     # Verify it's running
 
-[Service]
-Type=simple
-User=pi
-WorkingDirectory=/home/pi/presence-detection
-Environment=PATH=/home/pi/presence-detection/venv/bin
-ExecStart=/home/pi/presence-detection/venv/bin/python presence_sensor.py
-Restart=always
-RestartSec=10
+# Monitor the service
+./service_manager.sh logs       # View live logs
+```
 
-[Install]
-WantedBy=multi-user.target
-EOF
+### Service Management
+```bash
+# Daily operations
+./service_manager.sh status     # Check if running
+./service_manager.sh restart    # Restart after config changes
+./service_manager.sh stop       # Temporarily stop
+./service_manager.sh start      # Start again
 
-# Enable and start service
-sudo systemctl enable presence-sensor
-sudo systemctl start presence-sensor
+# Troubleshooting
+./service_manager.sh logs       # See what's happening
+./service_manager.sh kill       # Emergency stop
+./service_manager.sh uninstall  # Remove completely
+```
 
-# Check status
-sudo systemctl status presence-sensor
-journalctl -u presence-sensor -f
+### Manual Service Setup (Advanced)
+If you prefer manual systemd commands:
+```bash
+# The service manager script creates this service file:
+# /etc/systemd/system/presence-sensor.service
+
+# Manual systemd commands
+sudo systemctl status presence-sensor    # Check status
+sudo systemctl restart presence-sensor   # Restart
+journalctl -u presence-sensor -f         # View logs
 ```
 
 ## Troubleshooting
 
+### Service Issues
+```bash
+# Check service status
+./service_manager.sh status
+
+# View detailed logs
+./service_manager.sh logs
+
+# Restart if having issues
+./service_manager.sh restart
+
+# Emergency stop
+./service_manager.sh kill
+```
+
 ### TV Control Issues
 ```bash
-# Test network connectivity to TV
-python3 samsung_tv_control.py status --debug
+# Test TV connectivity manually
+source venv/bin/activate
+python3 power_on.py     # Test TV power on
+python3 power_off.py    # Test TV power off
 
 # Check TV network settings
 python3 discover_samsung_tv.py
@@ -290,14 +386,25 @@ pip install samsungtvws[async,encrypted]
 
 ## Development Status
 
-- ✅ **Samsung Network Control**: Complete and tested
-- ✅ **TV Discovery & Auto-Configuration**: Complete
-- ✅ **Power State Detection**: Complete with Samsung PowerState API
-- ✅ **Development Framework**: Complete with dry-run and verbose modes
-- ⏳ **Sensor Integration**: Ready for physical sensor connection
-- 🔄 **Service Deployment**: Planned next phase
+✅ **Completed & Working:**
+- **Presence Detection**: UART sensor communication fully functional
+- **LED Visual Feedback**: PWM-controlled LED with brightness and fade effects
+- **Periodic Sensor Reset**: Automatic 60s reset to prevent firmware glitches
+- **Sensor Framework**: Both UART and GPIO trigger modes implemented
+- **Configuration System**: Complete JSON-based configuration with LED settings
+- **Development Tools**: Debug utilities, dry-run modes, verbose logging, LED testing
+- **Hardware Integration**: Raspberry Pi CM5 + DFRobot SENS0395 + LED indicator working
 
-See `status.md` for detailed development progress and technical decisions.
+⚠️ **Problematic (Documented):**
+- **Samsung TV Control**: Intermittent WebSocket API failures
+- **Smart Plug Control**: All attempted methods failed (see `archive_failed_attempts/`)
+
+🔄 **Next Phase Options:**
+- Investigate reliable hardware control methods (relay switching)
+- Implement IFTTT webhooks as cloud-based alternative
+- Focus on presence detection applications beyond TV control
+
+See `status.md` for detailed development progress, failed attempts, and technical decisions.
 
 ## License
 

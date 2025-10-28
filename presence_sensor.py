@@ -20,8 +20,105 @@ try:
 except ImportError:
     lgpio = None
 
-from samsung_tv_control import SamsungTVController
+from enhanced_samsung_controller import EnhancedSamsungTVController
 from uart_sensor import UARTSensor
+
+
+class LEDController:
+    """LED controller with PWM dimming support using lgpio"""
+
+    def __init__(self, pin: int):
+        self.pin = pin
+        self.gpio_handle = None
+        self.state = False
+        self.brightness = 0  # 0-100%
+        self.pwm_frequency = 1000  # 1kHz PWM frequency
+        self._setup_gpio()
+
+    def _setup_gpio(self):
+        """Initialize GPIO for LED control"""
+        if lgpio is not None:
+            try:
+                self.gpio_handle = lgpio.gpiochip_open(0)
+                lgpio.gpio_claim_output(self.gpio_handle, self.pin)
+                lgpio.gpio_write(self.gpio_handle, self.pin, 0)  # Start with LED off
+            except Exception as e:
+                print(f"Failed to setup LED GPIO: {e}")
+                self.gpio_handle = None
+
+    def set_brightness(self, percentage: float):
+        """Set LED brightness (0-100%)"""
+        if self.gpio_handle is not None:
+            try:
+                percentage = max(0, min(100, percentage))  # Clamp to 0-100%
+                self.brightness = percentage
+
+                if percentage == 0:
+                    # Use PWM at 0% duty cycle instead of turning off
+                    lgpio.tx_pwm(self.gpio_handle, self.pin, self.pwm_frequency, 0)
+                    self.state = False
+                elif percentage == 100:
+                    # Use PWM at 100% duty cycle instead of turning off
+                    lgpio.tx_pwm(self.gpio_handle, self.pin, self.pwm_frequency, 100)
+                    self.state = True
+                else:
+                    # Use PWM for intermediate brightness
+                    # lgpio tx_pwm expects: frequency, duty_cycle_percent (0-100)
+                    lgpio.tx_pwm(self.gpio_handle, self.pin, self.pwm_frequency, percentage)
+                    self.state = True
+
+            except Exception as e:
+                print(f"Failed to set LED brightness: {e}")
+
+    def on(self, brightness: float = 100):
+        """Turn LED on at specified brightness (default 100%)"""
+        self.set_brightness(brightness)
+
+    def off(self):
+        """Turn LED off"""
+        self.set_brightness(0)
+
+    def fade_to(self, target_brightness: float, duration: float = 1.0, steps: int = 50):
+        """Fade LED to target brightness over specified duration"""
+        if self.gpio_handle is None:
+            return
+
+        import threading
+        import time
+
+        def fade_thread():
+            start_brightness = self.brightness
+            step_delay = duration / steps
+            brightness_step = (target_brightness - start_brightness) / steps
+
+            for i in range(steps + 1):
+                current_brightness = start_brightness + (brightness_step * i)
+                self.set_brightness(current_brightness)
+                if i < steps:  # Don't sleep after the last step
+                    time.sleep(step_delay)
+
+        # Run fade in background thread
+        thread = threading.Thread(target=fade_thread, daemon=True)
+        thread.start()
+
+    def fade_in(self, duration: float = 1.0, target_brightness: float = 100):
+        """Fade LED in from current brightness to target brightness"""
+        self.fade_to(target_brightness, duration)
+
+    def fade_out(self, duration: float = 1.0):
+        """Fade LED out to off"""
+        self.fade_to(0, duration)
+
+    def cleanup(self):
+        """Cleanup GPIO resources"""
+        if self.gpio_handle is not None:
+            try:
+                # Turn off LED using PWM at 0%
+                lgpio.tx_pwm(self.gpio_handle, self.pin, self.pwm_frequency, 0)
+                lgpio.gpio_free(self.gpio_handle, self.pin)
+                lgpio.gpiochip_close(self.gpio_handle)
+            except:
+                pass
 
 
 class PresenceSensor:
@@ -41,11 +138,24 @@ class PresenceSensor:
         self.tv_on = False
         self.running = False
         self.turn_off_timer = None
-        
+
+        # Thread safety for shared state
+        self.state_lock = threading.Lock()
+
+        # Periodic sensor reset to prevent firmware glitches from ground loop interference
+        self.sensor_reset_interval = self.config["sensor"].get("reset_interval_seconds", 60)
+        self.sensor_reset_timer = None
+        self.sensor_resetting = False
+
         # Sensor handling variables
         self.uart_sensor = None
         self.gpio_handle = None
         self.use_lgpio = False
+
+        # LED control
+        self.led_controller = LEDController(12)
+        self.led_brightness = self.config.get("led", {}).get("brightness", 100)
+        self.led_fade_duration = self.config.get("led", {}).get("fade_duration", 1.0)
         
         self.dev_mode = self.config.get("dev_mode", {})
         self.dry_run = self.dev_mode.get("dry_run", False)
@@ -73,20 +183,19 @@ class PresenceSensor:
         """Setup logging configuration"""
         log_config = self.config.get("logging", {})
         log_level = getattr(logging, log_config.get("level", "INFO").upper())
-        
-        # Configure root logger to ensure all modules get the same config
-        logging.basicConfig(
-            level=log_level,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        
+
+        # Get logger and clear any existing handlers to prevent duplicates
         logger = logging.getLogger(__name__)
+        logger.handlers.clear()
         logger.setLevel(log_level)
-        
+
+        # Set root logger level but don't use basicConfig (prevents duplicate handlers)
+        logging.getLogger().setLevel(log_level)
+
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
-        
+
         if self.config.get("dev_mode", {}).get("log_to_console", True):
             console_handler = logging.StreamHandler()
             console_handler.setFormatter(formatter)
@@ -97,8 +206,8 @@ class PresenceSensor:
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
         
-        # Also configure samsung_tv_control logger
-        tv_logger = logging.getLogger('samsung_tv_control')
+        # Also configure enhanced samsung controller logger
+        tv_logger = logging.getLogger('enhanced_samsung_controller')
         tv_logger.setLevel(log_level)
         
         return logger
@@ -111,33 +220,130 @@ class PresenceSensor:
             baudrate=uart_config["baudrate"],
             timeout=uart_config.get("timeout", 1.0)
         )
-        
+
         # Set up callbacks
         self.uart_sensor.on_presence_detected = self._on_presence_detected_uart
         self.uart_sensor.on_presence_lost = self._on_presence_lost_uart
-        
+
         if not self.uart_sensor.start():
             self.logger.error("Failed to start UART sensor")
             raise RuntimeError("UART sensor initialization failed")
-        
+
+        # Configure sensor range if specified in config
+        self._configure_sensor_range()
+
         self.logger.info("UART sensor initialized successfully")
-    
+
+    def _configure_sensor_range(self):
+        """Configure sensor range if needed based on config settings"""
+        range_config = self.config["sensor"].get("range_meters", {})
+
+        # Check if range configuration should be applied
+        apply_on_startup = range_config.get("apply_on_startup", False)
+
+        if not apply_on_startup:
+            self.logger.debug("Range configuration on startup disabled")
+            return
+
+        min_range = range_config.get("min", 0.5)
+        max_range = range_config.get("max", 3.0)
+
+        self.logger.info(f"Applying range configuration: {min_range}m to {max_range}m")
+
+        try:
+            # Configure the range using the UART sensor's method
+            if self.uart_sensor.configure_range(min_range, max_range):
+                # Update the last_applied timestamp
+                from datetime import datetime
+                import json
+
+                # Read current config, update timestamp, write back
+                try:
+                    with open("config.json", 'r') as f:
+                        config_data = json.load(f)
+
+                    config_data["sensor"]["range_meters"]["last_applied"] = datetime.now().isoformat()
+
+                    with open("config.json", 'w') as f:
+                        json.dump(config_data, f, indent=2)
+
+                    self.logger.info("Range configuration applied and timestamp updated")
+                except Exception as e:
+                    self.logger.warning(f"Failed to update config timestamp: {e}")
+            else:
+                self.logger.error("Failed to configure sensor range")
+        except Exception as e:
+            self.logger.error(f"Error during range configuration: {e}")
+
+    def _periodic_sensor_reset(self):
+        """Periodically reset sensor to prevent firmware glitches from ground loop interference"""
+        if not self.running or not self.uart_sensor:
+            return
+
+        try:
+            self.logger.info("Periodic sensor reset starting (preventive maintenance)")
+
+            # Set flag to ignore sensor callbacks during reset
+            with self.state_lock:
+                self.sensor_resetting = True
+
+            # Reset sensor
+            self.uart_sensor.send_command("sensorStop", wait_time=1.0)
+            time.sleep(0.5)
+            self.uart_sensor.send_command("sensorStart", wait_time=1.0)
+            time.sleep(2.0)
+
+            # Re-enable sensor callbacks
+            with self.state_lock:
+                self.sensor_resetting = False
+
+            self.logger.info("Periodic sensor reset complete")
+
+        except Exception as e:
+            self.logger.error(f"Error during periodic sensor reset: {e}")
+            with self.state_lock:
+                self.sensor_resetting = False
+
+        # Schedule next reset
+        if self.running:
+            self.sensor_reset_timer = threading.Timer(self.sensor_reset_interval, self._periodic_sensor_reset)
+            self.sensor_reset_timer.daemon = True
+            self.sensor_reset_timer.start()
+
     def _on_presence_detected_uart(self):
         """Callback when UART sensor detects presence"""
-        if not self.presence_detected:
-            self.presence_detected = True
-            self.last_presence_time = datetime.now()
-            self.logger.info("PRESENCE DETECTED")
-            self._cancel_tv_off()
-            self._turn_tv_on()
-    
+        with self.state_lock:
+            # Ignore sensor changes during periodic reset
+            if self.sensor_resetting:
+                self.logger.debug("PRESENCE DETECTED ignored - sensor reset in progress")
+                return
+
+            if not self.presence_detected:
+                self.presence_detected = True
+                self.last_presence_time = datetime.now()
+                self.logger.info("PRESENCE DETECTED")
+                self.led_controller.fade_in(self.led_fade_duration, self.led_brightness)
+
+        # Call TV control directly (will block, but that's OK)
+        self._cancel_tv_off()
+        self._turn_tv_on()
+
     def _on_presence_lost_uart(self):
         """Callback when UART sensor loses presence"""
-        if self.presence_detected:
-            self.presence_detected = False
-            self.last_presence_lost_time = datetime.now()
-            self.logger.info("PRESENCE LOST")
-            self._schedule_tv_off()
+        with self.state_lock:
+            # Ignore sensor changes during periodic reset
+            if self.sensor_resetting:
+                self.logger.debug("PRESENCE LOST ignored - sensor reset in progress")
+                return
+
+            if self.presence_detected:
+                self.presence_detected = False
+                self.last_presence_lost_time = datetime.now()
+                self.logger.info("PRESENCE LOST")
+                self.led_controller.fade_out(self.led_fade_duration)
+
+        # Schedule TV off through timer (non-blocking)
+        self._schedule_tv_off()
     
     def _setup_gpio(self):
         """Initialize GPIO for sensor reading"""
@@ -192,10 +398,10 @@ class PresenceSensor:
         sys.exit(1)
     
     def _setup_tv_controller(self):
-        """Initialize TV controller"""
+        """Initialize Enhanced Samsung TV controller"""
         try:
-            self.tv_controller = SamsungTVController()
-            self.logger.info("Samsung TV controller initialized")
+            self.tv_controller = EnhancedSamsungTVController()
+            self.logger.info("Enhanced Samsung TV controller initialized")
         except Exception as e:
             self.logger.error(f"TV controller setup failed: {e}")
             sys.exit(1)
@@ -252,14 +458,14 @@ class PresenceSensor:
         if self.tv_on:
             self.logger.debug("TV already on")
             return
-        
+
         self.logger.info("Turning TV ON")
-        
+
         if self.dry_run:
             self.logger.info("DRY RUN: Would turn TV on")
             self.tv_on = True
             return
-        
+
         try:
             # Use ensure_power_state for more reliable control
             success = self.tv_controller.ensure_power_state(True)
@@ -278,14 +484,14 @@ class PresenceSensor:
         if not self.tv_on:
             self.logger.debug("TV already off")
             return
-        
+
         self.logger.info("Turning TV OFF")
-        
+
         if self.dry_run:
             self.logger.info("DRY RUN: Would turn TV off")
             self.tv_on = False
             return
-        
+
         try:
             # Use ensure_power_state for more reliable control
             success = self.tv_controller.ensure_power_state(False)
@@ -301,11 +507,11 @@ class PresenceSensor:
         """Schedule TV to turn off after delay"""
         if self.turn_off_timer:
             self.turn_off_timer.cancel()
-        
+
         self.logger.info(f"Scheduling TV off in {self.turn_off_delay} seconds")
         self.turn_off_timer = threading.Timer(self.turn_off_delay, self._turn_tv_off)
         self.turn_off_timer.start()
-    
+
     def _cancel_tv_off(self):
         """Cancel scheduled TV off"""
         if self.turn_off_timer:
@@ -314,33 +520,41 @@ class PresenceSensor:
             self.logger.info("Cancelled scheduled TV off")
     
     def _on_presence_detected(self):
-        """Handle presence detection"""
+        """Handle presence detection (GPIO mode)"""
         now = datetime.now()
-        
-        if (self.last_presence_time is None or 
+
+        if (self.last_presence_time is None or
             (now - self.last_presence_time).total_seconds() > self.debounce_time):
-            
-            if not self.presence_detected:
-                self.logger.info("PRESENCE DETECTED")
-                self.presence_detected = True
-                self._cancel_tv_off()
-                self._turn_tv_on()
-            
+
+            with self.state_lock:
+                if not self.presence_detected:
+                    self.logger.info("PRESENCE DETECTED (GPIO mode)")
+                    self.presence_detected = True
+                    self.led_controller.fade_in(self.led_fade_duration, self.led_brightness)
+
             self.last_presence_time = now
-    
+
+            # Call TV control directly
+            self._cancel_tv_off()
+            self._turn_tv_on()
+
     def _on_presence_lost(self):
-        """Handle loss of presence"""
+        """Handle loss of presence (GPIO mode)"""
         now = datetime.now()
-        
-        if (self.last_presence_lost_time is None or 
+
+        if (self.last_presence_lost_time is None or
             (now - self.last_presence_lost_time).total_seconds() > self.debounce_time):
-            
-            if self.presence_detected:
-                self.logger.info("PRESENCE LOST")
-                self.presence_detected = False
-                self._schedule_tv_off()
-            
+
+            with self.state_lock:
+                if self.presence_detected:
+                    self.logger.info("PRESENCE LOST (GPIO mode)")
+                    self.presence_detected = False
+                    self.led_controller.fade_out(self.led_fade_duration)
+
             self.last_presence_lost_time = now
+
+            # Schedule TV off through timer
+            self._schedule_tv_off()
     
     def _monitor_loop(self):
         """Main monitoring loop"""
@@ -351,8 +565,10 @@ class PresenceSensor:
             while self.running:
                 try:
                     if self.dev_mode.get("verbose", False):
-                        status = "PRESENT" if self.presence_detected else "ABSENT"
-                        self.logger.debug(f"Status: {status}, TV: {'ON' if self.tv_on else 'OFF'}")
+                        with self.state_lock:
+                            status = "PRESENT" if self.presence_detected else "ABSENT"
+                        sensor_hw_state = self.uart_sensor.get_presence() if self.uart_sensor else None
+                        self.logger.debug(f"Status: {status}, SensorHW: {sensor_hw_state}, TV: {'ON' if self.tv_on else 'OFF'}")
                     time.sleep(1)  # 1s status check
                 except KeyboardInterrupt:
                     break
@@ -387,11 +603,18 @@ class PresenceSensor:
     def start(self):
         """Start the presence detection system"""
         self.running = True
-        
+
+        # Start periodic sensor reset timer (for UART mode only)
+        if self.sensor_mode == "uart" and self.uart_sensor:
+            self.logger.info(f"Starting periodic sensor reset every {self.sensor_reset_interval}s")
+            self.sensor_reset_timer = threading.Timer(self.sensor_reset_interval, self._periodic_sensor_reset)
+            self.sensor_reset_timer.daemon = True
+            self.sensor_reset_timer.start()
+
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
-        
+
         try:
             self.logger.info("Presence sensor system starting...")
             self._monitor_loop()
@@ -404,10 +627,19 @@ class PresenceSensor:
         """Stop the presence detection system"""
         self.logger.info("Stopping presence sensor system...")
         self.running = False
-        
+
+        # Stop periodic sensor reset timer
+        if self.sensor_reset_timer:
+            self.sensor_reset_timer.cancel()
+            self.sensor_reset_timer = None
+
         if self.turn_off_timer:
             self.turn_off_timer.cancel()
-        
+
+        # Cleanup LED controller
+        if self.led_controller:
+            self.led_controller.cleanup()
+
         # Cleanup sensor resources
         if self.sensor_mode == "uart":
             if self.uart_sensor:
@@ -420,13 +652,13 @@ class PresenceSensor:
                     lgpio.gpiochip_close(self.gpio_handle)
                 except:
                     pass
-            
+
             if GPIO is not None and not self.use_lgpio:
                 try:
                     GPIO.cleanup()
                 except:
                     pass
-        
+
         self.logger.info("System stopped")
     
     def _signal_handler(self, signum, frame):
