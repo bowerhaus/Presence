@@ -4,17 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Raspberry Pi CM5-based human presence detection system that was intended to control a Samsung Frame 43" TV. **The presence detection system is fully functional, but TV control remains problematic due to API limitations.**
+This is a Raspberry Pi CM5-based human presence detection system that was intended to control a Samsung Frame 43" TV. **The presence detection system is fully functional with LED visual feedback, but TV control remains problematic due to API limitations.**
 
-## Current Project Status (2025-09-18)
+## Current Project Status (2025-10-28)
+
+**Note**: Currently on `Presence-LED` feature branch, which adds LED visual feedback system.
 
 ⚠️ **CRITICAL: Multiple TV control methods have failed**
 
 ### Working Components ✅
 - **Presence Detection**: DFRobot SENS0395 mmWave sensor via UART (`/dev/ttyAMA1`)
+- **LED Visual Feedback**: PWM-controlled LED on GPIO 12 with fade effects (0-100% brightness)
+- **Periodic Sensor Reset**: Automatic sensor reset every 60s to prevent firmware glitches from ground loop interference
 - **Sensor Framework**: Complete UART and GPIO trigger mode support
-- **Configuration System**: JSON-based config with development modes
-- **Development Tools**: Debug scripts, dry-run testing, verbose logging
+- **Configuration System**: JSON-based config with development modes (includes LED settings)
+- **Development Tools**: Debug scripts, dry-run testing, verbose logging, LED testing
 
 ### Failed Components ❌ (Archived in `archive_failed_attempts/`)
 - **Samsung TV Network Control**: Intermittent WebSocket API failures
@@ -30,9 +34,10 @@ This is a Raspberry Pi CM5-based human presence detection system that was intend
 - **Platform**: Raspberry Pi CM5 with lgpio library
 
 ### Timing Logic (Implemented)
-- **Turn ON**: Immediate with 1-2 second debouncing
-- **Turn OFF**: 10-minute delay after last presence detected
-- **State Machine**: Presence Detected → (TV Control Attempt) → 10 min timeout → (TV Control Attempt)
+- **Turn ON**: Immediate with 1-2 second debouncing, LED fades in
+- **Turn OFF**: 60-second delay after last presence detected, LED fades out
+- **Sensor Reset**: Automatic reset every 60 seconds (preventive maintenance)
+- **State Machine**: Presence Detected → LED fade in + TV Control Attempt → 60s timeout → LED fade out + TV Control Attempt
 
 ## Development Commands
 
@@ -51,8 +56,11 @@ python3 power_on.py                                # Turn TV on (may fail)
 python3 power_off.py                               # Turn TV off (may fail)
 
 # Configure sensor settings
-python3 configure_sensor.py                       # Set detection range to 2m
+python3 configure_sensor.py                       # Set detection range
 python3 check_sensor_config.py                    # Verify sensor settings
+
+# Test LED functionality
+python3 test_led_dimming.py                       # Test LED brightness and fade effects
 
 # Service management (not recommended until TV control is reliable)
 sudo systemctl status presence-sensor             # Check service status
@@ -63,11 +71,11 @@ journalctl -u presence-sensor -f                  # View logs if service exists
 
 ```
 # Core working components
-presence_sensor.py           # Main application (presence detection working, TV control unreliable)
+presence_sensor.py           # Main application (presence detection + LED control working, TV control unreliable)
 uart_sensor.py              # UART sensor interface (WORKING)
 samsung_tv_control.py        # Samsung TV control (UNRELIABLE)
 discover_samsung_tv.py       # TV discovery utility
-config.json                  # System configuration (cleaned)
+config.json                  # System configuration (sensor, TV, LED, timing)
 
 # Control scripts
 power_on.py                  # Manual TV power on script
@@ -77,6 +85,7 @@ power_off.py                 # Manual TV power off script
 debug_sensor_strings.py      # UART sensor debugging (WORKING)
 configure_sensor.py          # Sensor range configuration
 check_sensor_config.py       # Sensor settings verification
+test_led_dimming.py          # LED brightness and fade effect testing
 
 # Environment and dependencies
 venv/                        # Python virtual environment (clean)
@@ -94,11 +103,19 @@ archive_failed_attempts/     # All failed control methods
 ## Configuration
 
 The system uses a JSON configuration file (`config.json`) with the following structure:
-- `sensor`: UART settings (UART mode working on `/dev/ttyAMA1`)
-- `tv_control`: Timing parameters and control type
+- `sensor`: UART settings (UART mode working on `/dev/ttyAMA1`), range config, reset interval
+- `tv_control`: Timing parameters and control type (60s turn-off delay)
 - `samsung_tv`: Network TV control settings (UNRELIABLE)
+- `led`: LED brightness and fade duration settings
 - `logging`: Log levels and file paths
 - `dev_mode`: Development mode settings
+
+**Key Configuration Values:**
+- `sensor.range_meters.max`: 3.5m (maximum detection range)
+- `sensor.reset_interval_seconds`: 60 (automatic sensor reset interval)
+- `tv_control.turn_off_delay`: 60 (seconds before TV turns off)
+- `led.brightness`: 50 (LED brightness 0-100%)
+- `led.fade_duration`: 1.0 (fade effect duration in seconds)
 
 **Removed sections:** `ir_control`, `cec`, and `sensor.trigger` (GPIO pin config) are no longer needed.
 
@@ -106,10 +123,12 @@ The system uses a JSON configuration file (`config.json`) with the following str
 
 1. **Platform**: Raspberry Pi CM5 with lgpio library (not RPi.GPIO)
 2. **Sensor Communication**: UART via `/dev/ttyAMA1` at 115200 baud (WORKING)
-3. **TV Control**: samsungtvws library for Samsung TV WebSocket API (UNRELIABLE)
-4. **Virtual Environment**: Clean dependency management (failed libraries removed)
-5. **Power State Detection**: Samsung PowerState API when working
-6. **Development Mode**: Comprehensive dry-run and debug capabilities
+3. **LED Control**: GPIO pin 12 with PWM for brightness control (0-100%)
+4. **Periodic Sensor Reset**: Automatic reset every 60s to prevent firmware glitches from ground loop interference
+5. **TV Control**: samsungtvws library for Samsung TV WebSocket API (UNRELIABLE)
+6. **Virtual Environment**: Clean dependency management (failed libraries removed)
+7. **Power State Detection**: Samsung PowerState API when working
+8. **Development Mode**: Comprehensive dry-run and debug capabilities
 
 ## Critical Notes for Future Development
 
@@ -121,6 +140,8 @@ The system uses a JSON configuration file (`config.json`) with the following str
 
 ✅ **RELIABLE COMPONENTS TO BUILD ON**
 - UART sensor communication is rock-solid
+- LED visual feedback system working perfectly
+- Periodic sensor reset mechanism prevents firmware glitches
 - Configuration framework is robust
 - Development and debugging tools are comprehensive
 
@@ -128,8 +149,10 @@ The system uses a JSON configuration file (`config.json`) with the following str
 
 ✅ **Working Tests:**
 - UART sensor communication testing with `debug_sensor_strings.py`
+- LED brightness and fade testing with `test_led_dimming.py`
 - Presence detection simulation with dry-run mode
 - Configuration validation and sensor setup verification
+- Periodic sensor reset verification
 
 ⚠️ **Problematic Tests:**
 - Samsung TV control tests may fail intermittently

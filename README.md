@@ -9,7 +9,9 @@ The presence detection system is **fully functional** but TV control remains **u
 ## Current Status
 
 ✅ **Working Components:**
-- **Human Presence Detection**: DFRobot SENS0395 mmWave sensor via UART (2m range configured)
+- **Human Presence Detection**: DFRobot SENS0395 mmWave sensor via UART (3.5m max range configured)
+- **LED Visual Feedback**: PWM-controlled LED on GPIO 12 with fade effects (brightness 0-100%)
+- **Periodic Sensor Reset**: Automatic sensor reset every 60s to prevent firmware glitches from ground loop interference
 - **Sensor Framework**: Complete UART communication and GPIO trigger modes
 - **Configuration System**: JSON-based configuration with development modes
 - **Logging Infrastructure**: Comprehensive logging with file/console output
@@ -28,7 +30,8 @@ The presence detection system is **fully functional** but TV control remains **u
 
 ✅ **Currently Working:**
 - **Raspberry Pi CM5** (tested and configured)
-- **DFRobot SENS0395 mmWave sensor** (UART on `/dev/ttyAMA1`, 2m detection range)
+- **DFRobot SENS0395 mmWave sensor** (UART on `/dev/ttyAMA1`, 3.5m max detection range)
+- **LED Indicator** (GPIO pin 12, PWM-controlled for brightness/fade effects)
 - **Network Connection**: WiFi connectivity established
 
 ⚠️ **TV Control Hardware (Unreliable):**
@@ -118,7 +121,13 @@ The system uses `config.json` for all settings. Key sections:
       "port": "/dev/ttyAMA1",          // UART port for CM5
       "baudrate": 115200,              // Communication speed
       "timeout": 1.0                   // Read timeout
-    }
+    },
+    "range_meters": {
+      "min": 0.75,                     // Minimum detection range
+      "max": 3.5,                      // Maximum detection range
+      "apply_on_startup": true         // Apply range on startup
+    },
+    "reset_interval_seconds": 60       // Auto-reset every 60s (prevents firmware glitches)
   }
 }
 ```
@@ -127,10 +136,20 @@ The system uses `config.json` for all settings. Key sections:
 ```json
 {
   "tv_control": {
-    "turn_off_delay": 600,    // 10 minutes before TV off
+    "turn_off_delay": 60,     // 60 seconds before TV off
     "turn_on_delay": 0,       // Immediate TV on
     "retry_attempts": 3,      // Connection retry count
     "retry_delay": 2          // Seconds between retries
+  }
+}
+```
+
+### LED Configuration
+```json
+{
+  "led": {
+    "brightness": 50,         // LED brightness (0-100%)
+    "fade_duration": 1.0      // Fade effect duration in seconds
   }
 }
 ```
@@ -186,6 +205,12 @@ python3 presence_sensor.py --dev --dry-run --verbose  # Full simulation
 python3 presence_sensor.py --config custom.json  # Use custom config file
 ```
 
+### LED Testing Commands
+```bash
+# Test LED functionality
+python3 test_led_dimming.py                      # Test LED brightness and fade effects
+```
+
 ## Samsung TV Network Control
 
 The system uses Samsung's WebSocket API for reliable TV control over the network.
@@ -213,11 +238,12 @@ The system uses Samsung's WebSocket API for reliable TV control over the network
 ## Architecture
 
 ### Control Flow
-1. **Presence Detected** → Immediate TV power on (WebSocket/Wake-on-LAN)
-2. **TV ON State** → Monitor continued presence
-3. **No Presence** → Start 10-minute countdown timer  
+1. **Presence Detected** → LED fades in + Immediate TV power on (WebSocket/Wake-on-LAN)
+2. **TV ON State** → Monitor continued presence, LED stays on
+3. **No Presence** → LED fades out + Start 60-second countdown timer
 4. **Timer Expires** → TV power off to standby mode
-5. **Presence Returns** → Cancel timer, ensure TV remains on
+5. **Presence Returns** → Cancel timer, LED fades in, ensure TV remains on
+6. **Sensor Auto-Reset** → Periodic reset every 60s to prevent firmware glitches
 
 ### Smart Power Control Strategy
 **Power ON Logic:**
@@ -235,11 +261,11 @@ The system uses Samsung's WebSocket API for reliable TV control over the network
 
 ```
 # Core Components
-presence_sensor.py          # Main application with Samsung network integration
+presence_sensor.py          # Main application with Samsung network integration and LED control
 uart_sensor.py              # UART sensor interface for DFRobot SENS0395
 enhanced_samsung_controller.py  # Enhanced Samsung TV network control module
 discover_samsung_tv.py      # TV discovery and auto-configuration
-config.json                 # System configuration (sensor, TV, timing)
+config.json                 # System configuration (sensor, TV, LED, timing)
 
 # Service Management
 service_manager.sh          # Systemd service management script
@@ -253,6 +279,7 @@ power_off.py                # Manual TV power off script
 debug_sensor_strings.py     # UART sensor debugging utility
 configure_sensor.py         # Sensor range configuration tool
 check_sensor_config.py      # Sensor settings verification
+test_led_dimming.py         # LED brightness and fade effect testing
 
 # Environment
 venv/                       # Python virtual environment with dependencies
@@ -361,10 +388,12 @@ pip install samsungtvws[async,encrypted]
 
 ✅ **Completed & Working:**
 - **Presence Detection**: UART sensor communication fully functional
+- **LED Visual Feedback**: PWM-controlled LED with brightness and fade effects
+- **Periodic Sensor Reset**: Automatic 60s reset to prevent firmware glitches
 - **Sensor Framework**: Both UART and GPIO trigger modes implemented
-- **Configuration System**: Complete JSON-based configuration
-- **Development Tools**: Debug utilities, dry-run modes, verbose logging
-- **Hardware Integration**: Raspberry Pi CM5 + DFRobot SENS0395 working
+- **Configuration System**: Complete JSON-based configuration with LED settings
+- **Development Tools**: Debug utilities, dry-run modes, verbose logging, LED testing
+- **Hardware Integration**: Raspberry Pi CM5 + DFRobot SENS0395 + LED indicator working
 
 ⚠️ **Problematic (Documented):**
 - **Samsung TV Control**: Intermittent WebSocket API failures
