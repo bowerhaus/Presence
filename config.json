@@ -9,9 +9,9 @@
     },
     "range_meters": {
       "min": 0.75,
-      "max": 3.5,
+      "max": 4,
       "apply_on_startup": true,
-      "last_applied": "2025-10-28T11:02:38.975809"
+      "last_applied": "2026-02-24T08:55:57.838492"
     },
     "reset_interval_seconds": 60
   },
